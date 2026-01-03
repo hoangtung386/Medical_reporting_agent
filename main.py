@@ -1,11 +1,11 @@
 import numpy as np
-from ammfs.agents.vision_encoder import VisionEncoderAgent
-from ammfs.agents.segmentation import SegmentationSpecialistAgent
-from ammfs.agents.orchestrator import OrchestratorAgent
-from ammfs.agents.specialists import AnatomySpecialistAgent, PathologySpecialistAgent, MeasurementQuantifierAgent
-from ammfs.agents.rag_retrieval import RAGSpecialistAgent
-from ammfs.agents.report_gen import ReportGeneratorAgent
-from ammfs.agents.validator import ClinicalValidatorAgent
+from agents.vision_encoder import VisionEncoderAgent
+from agents.segmentation import SegmentationSpecialistAgent
+from agents.orchestrator import OrchestratorAgent
+from agents.specialists import AnatomySpecialistAgent, PathologySpecialistAgent, MeasurementQuantifierAgent
+from agents.rag_retrieval import RAGSpecialistAgent
+from agents.report_gen import ReportGeneratorAgent
+from agents.validator import ClinicalValidatorAgent
 
 def main():
     print("🚀 Initializing AMMFS: Agentic Multi-Modal Foundation System...")
