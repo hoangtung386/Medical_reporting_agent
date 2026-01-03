@@ -97,7 +97,29 @@ Sửa file `.env` hoặc set biến môi trường cho Orchestrator (nếu dùng
 export ANTHROPIC_API_KEY="your-api-key-here"
 ```
 
-### 3. Chạy thử nghiệm Logic (Functional Skeleton)
+### 3. Chuẩn bị Dữ liệu (Da Preparation)
+Dự án sử dụng dataset **AbdomenAtlas 3.0 Mini**. Do kích thước dữ liệu lớn, chúng tôi cung cấp script để tải và giải nén tự động.
+
+**Cách 1: Sử dụng Shell Script (Khuyến nghị)**
+Script này sẽ tải từng phần (chunk), giải nén vào thư mục `data/image_only` và `data/mask_only` đúng cấu trúc dự án.
+
+```bash
+# Cấp quyền thực thi (nếu chưa)
+chmod +x download_data.sh
+
+# Chạy script tải dữ liệu (Cần ~500GB bộ nhớ trống)
+./download_data.sh
+```
+
+**Cách 2: Sử dụng Python (Hugging Face)**
+Nếu bạn muốn dùng thư viện `datasets`:
+```python
+from datasets import load_dataset
+# Lưu ý: Cần login bằng huggingface-cli login trước
+ds = load_dataset("AbdomenAtlas/AbdomenAtlas3.0Mini")
+```
+
+### 4. Chạy thử nghiệm Logic (Functional Skeleton)
 Hệ thống hiện tại đã có bộ khung chức năng hoàn chỉnh. Bạn có thể chạy demo với mock data ngay lập tức:
 
 ```bash
