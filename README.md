@@ -86,8 +86,8 @@ Hệ thống được module hóa thành các thành phần độc lập, dễ d
 Yêu cầu Python 3.10+ và CUDA (khuyến nghị).
 
 ```bash
-git clone https://github.com/your-repo/medical_reporting_agent.git
-cd medical_reporting_agent
+git clone https://github.com/hoangtung386/Medical_reporting_agent.git
+cd Medical_reporting_agent
 pip install -r requirements.txt
 ```
 
