@@ -41,8 +41,8 @@ Hệ thống được module hóa thành các thành phần độc lập, dễ d
 
 ### **1. Agent 1: 3D Vision Encoder (Global Understanding)**
 *   **Nhiệm vụ:** Trích xuất đặc trưng hình ảnh toàn cục (global visual features) từ dữ liệu khối (volumetric data).
-*   **Công nghệ:** Sử dụng kiến trúc **Swin Transformer 3D** (tương tự RadFM/M3D-LaMed) để hiểu ngữ cảnh không gian 3 chiều.
-*   **Output:** Vector đặc trưng (embeddings) kích thước 512-dim cho từng vùng không gian, giúp các agent sau "nhìn" thấy ảnh.
+*   **Công nghệ:** Sử dụng kiến trúc **SwinUNETR** với pre-trained weights từ **SuPreM** (Supervised Pretraining with Masked Image Modeling), được benchmark trên tập AbdomenAtlas để giảm thiểu ảo giác và tăng độ chính xác.
+*   **Output:** Multi-scale features (raw embeddings) từ encoder, cung cấp ngữ cảnh không gian phong phú cho các agent chuyên gia.
 
 ### **2. Agent 2: Segmentation Specialist (Local Precision)**
 *   **Nhiệm vụ:** Phân đoạn chính xác các cơ quan và tổn thương (organs & lesions) ở cấp độ pixel.
@@ -152,12 +152,11 @@ Chúng ta đã hoàn thành **Phase 1: Foundation Setup**. Để đưa hệ th�
 *   [x] **Functional Skeleton:** Xây dựng khung code Python, tích hợp thư viện (MONAI, Torch, Transformers).
 *   [x] **Robustness:** Cơ chế fallback thông minh (chạy được cả khi thiếu thư viện/GPU).
 *   [x] **Verification:** Kiểm thử luồng dữ liệu End-to-End thành công.
+*   [x] **Agent 1 Implementation:** Tích hợp SwinUNETR v1 (SuPreM weights).
 
 ### 📝 Cần thực hiện tiếp (Next Steps - Phase 2)
 
 #### 1. Tích hợp Trọng số Mô hình (Model Weights Integration)
-*   **Agent 1 (Vision):** Tải và load pre-trained weights của **Swin Transformer 3D** (từ RadFM hoặc M3D-LaMed).
-    *   *Task:* Download file `.pth` -> Update path trong `vision_encoder.py`.
 *   **Agent 2 (Segmentation):** Cài đặt **nnU-Net** đầy đủ và tải weights pre-trained cho organ segmentation (ví dụ: tập Totalsegmentator).
     *   *Task:* Run `nnUNet_predict` command line wrapper hoặc python API.
 *   **Agent 8 (Report Gen):** Tải checkpoint **MedGemma-2B** và LoRA adapters.
