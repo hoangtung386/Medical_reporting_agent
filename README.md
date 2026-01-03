@@ -51,7 +51,8 @@ Hệ thống được module hóa thành các thành phần độc lập, dễ d
 
 ### **3. Agent 3: Knowledge Fusion & Orchestrator ("The Brain")**
 *   **Nhiệm vụ:** Lập kế hoạch (Planning) và Điều phối (Routing). Dựa trên input sơ bộ từ Agent 1 & 2, nó quyết định cần gọi những chuyên gia nào để xử lý ca bệnh này.
-*   **Công nghệ:** **LLM-based Planner** (sử dụng **Anthropic Claude** hoặc GPT-4o).
+*   **Công nghệ:** **Local LLM** (sử dụng **openai/gpt-oss-20b** chạy cục bộ).
+*   **Lợi ích:** Không phụ thuộc vào API bên thứ ba, bảo mật dữ liệu tuyệt đối (Privacy-first).
 *   **Ví dụ:** Nếu phát hiện nodule ở phổi, nó sẽ gọi Agent Pathology và Measurement; nếu input bình thường, nó có thể bỏ qua các bước sâu để tiết kiệm tài nguyên.
 
 ### **4. Agent 4: Anatomy Specialist**
@@ -103,10 +104,12 @@ cd Medical_reporting_agent
 pip install -r requirements.txt
 ```
 
-### 2. Cấu hình
-Sửa file `.env` hoặc set biến môi trường cho Orchestrator (nếu dùng Claude):
+### 2. Cấu hình & Tải Trọng số Mô hình
+Do hệ thống chuyển sang dùng Local LLM (**gpt-oss-20b**), bạn không cần cấu hình API Key nữa. Thay vào đó, hãy đảm bảo bạn có đủ VRAM để chạy mô hình.
+
 ```bash
-export ANTHROPIC_API_KEY="your-api-key-here"
+# Weights sẽ được tự động tải từ Hugging Face khi chạy lần đầu
+# (hoặc bạn có thể tải thủ công về cache)
 ```
 
 ### 3. Chuẩn bị Dữ liệu (Da Preparation)
@@ -160,8 +163,8 @@ Chúng ta đã hoàn thành **Phase 1: Foundation Setup**. Để đưa hệ th�
 *   **Agent 8 (Report Gen):** Tải checkpoint **MedGemma-2B** và LoRA adapters.
     *   *Task:* Update `model_id` trong `report_gen.py`.
 
-#### 2. Kết nối API & Dữ liệu
-*   **Agent 3 (Orchestrator):** Đăng ký API Key Claude/OpenAI và đưa vào file cấu hình.
+#### 2. Kết nối & Tối ưu hóa
+*   **Agent 3 (Orchestrator):** Tối ưu hóa inference cho `gpt-oss-20b` (Quantization 4-bit/8-bit).
 *   **Agent 7 (RAG):** Xây dựng cơ sở dữ liệu ChromaDB thực tế.
     *   *Task:* Scrape PDF guidelines -> Chunking -> Vectorize -> Insert vào DB.
 
