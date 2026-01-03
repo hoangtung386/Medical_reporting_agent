@@ -128,7 +128,7 @@ python3 main.py
 
 ---
 
-## � Lộ Trình Phát Triển & Các Bước Cần Hoàn Thiện (Roadmap)
+## 🔥 Lộ Trình Phát Triển & Các Bước Cần Hoàn Thiện (Roadmap)
 
 Chúng ta đã hoàn thành **Phase 1: Foundation Setup**. Để đưa hệ thống vào thực tế (Production), cần thực hiện các bước sau trong **Phase 2**:
 
