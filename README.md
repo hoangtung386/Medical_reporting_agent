@@ -137,5 +137,5 @@ Chúng ta đã hoàn thành **Phase 1: Foundation Setup**. Để đưa hệ th�
 
 ---
 
-**Dự án Medical Reporting Agent - 2025**
+**Dự án Medical Reporting Agent - 2026**
 *Được thiết kế để đạt chuẩn SOTA trong y tế thông minh.*
