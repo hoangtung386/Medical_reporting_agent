@@ -80,6 +80,18 @@ Hệ thống được module hóa thành các thành phần độc lập, dễ d
 
 ---
 
+## 🤝 Cộng Tác
+Dự án được thiết kế để pair-programming. Mã nguồn nằm trong thư mục `Medical_reporting_agent/`. 
+Cấu trúc thư mục mới đã được chia nhỏ theo từng Agent để dễ dàng phát triển:
+- `agents/agent_1_vision/`
+- `agents/agent_2_segmentation/`
+- ...
+- `agents/agent_9_validator/`
+
+Mỗi thư mục chứa logic riêng biệt của agent đó, giúp tránh xung đột khi làm việc nhóm.
+
+---
+
 ## 🛠 Hướng Dẫn Cài Đặt & Chạy Demo
 
 ### 1. Cài đặt môi trường
