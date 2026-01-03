@@ -98,3 +98,4 @@ class SegmentationSpecialistAgent(BaseAgent):
         metrics["locations"] = ["Right Upper Lobe"]
         
         return metrics
+        
