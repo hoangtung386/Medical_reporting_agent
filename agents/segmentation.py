@@ -1,3 +1,6 @@
+"""
+Agent 2: Segmentation Specialist (nnU-Net + SAM3D).
+"""
 from .base import BaseAgent
 from typing import Dict, Any, Optional
 import numpy as np

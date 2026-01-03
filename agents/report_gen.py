@@ -1,3 +1,7 @@
+"""
+Agent 8: Report Generator (MedGemma + LoRA).
+Synthesizes structured radiology reports from all upstream insights.
+"""
 from .base import BaseAgent
 from typing import Any, Dict
 
@@ -10,10 +14,6 @@ except ImportError:
     AutoModelForCausalLM = None
 
 class ReportGeneratorAgent(BaseAgent):
-    """
-    Agent 8: Report Generator (MedGemma + LoRA).
-    Synthesizes structured radiology reports from all upstream insights.
-    """
     def __init__(self, device="cpu"):
         super().__init__(name="Agent 8: Report Generator")
         

@@ -1,3 +1,7 @@
+"""
+Agent 7: RAG Retrieval Specialist.
+Retrieves relevant clinical guidelines and similar cases from VectorDB.
+"""
 from .base import BaseAgent
 from typing import Any, Dict
 import os
@@ -8,10 +12,6 @@ except ImportError:
     chromadb = None
 
 class RAGSpecialistAgent(BaseAgent):
-    """
-    Agent 7: RAG Retrieval Specialist.
-    Retrieves relevant clinical guidelines and similar cases from VectorDB.
-    """
     def __init__(self):
         super().__init__(name="Agent 7: RAG Retrieval")
         self.client = None

@@ -1,3 +1,6 @@
+"""
+    Agent 4: Anatomy Specialist and Agent 5: Pathology Specialist.
+"""
 from .base import BaseAgent
 from typing import Any, Dict, List, Tuple
 import numpy as np

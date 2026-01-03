@@ -1,12 +1,12 @@
+"""
+Agent 9: Clinical Validator.
+Cross-checks the generated report against quantitative data and masks.
+"""
 from .base import BaseAgent
 from typing import Any, Dict, List
 import re
 
 class ClinicalValidatorAgent(BaseAgent):
-    """
-    Agent 9: Clinical Validator.
-    Cross-checks the generated report against quantitative data and masks.
-    """
     def __init__(self):
         super().__init__(name="Agent 9: Clinical Validator")
 

@@ -1,3 +1,7 @@
+"""
+Agent 1: 3D Vision Encoder (RadFM/M3D-LaMed style).
+Extracts global visual features from volumetric data.
+"""
 from .base import BaseAgent
 import numpy as np
 from typing import Any

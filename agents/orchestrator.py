@@ -1,3 +1,7 @@
+"""
+Agent 3: Knowledge Fusion & Orchestrator (LLM-based).
+Plans workflows and routes data to specialist agents.
+"""
 from .base import BaseAgent
 from typing import Dict, Any, List
 import os
