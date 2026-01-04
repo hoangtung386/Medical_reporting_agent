@@ -40,7 +40,7 @@ class VisionEncoderAgent(BaseAgent):
             ).to(self.device)
             
             # Load pre-trained weights
-            weights_path = os.path.join(os.path.dirname(__file__), 'supervised_suprem_swinunetr_2100.pth')
+            weights_path = os.path.join(os.path.dirname(__file__), '../agent_2_segmentation/pretrained_weights/supervised_suprem_swinunetr_2100.pth')
             if os.path.exists(weights_path):
                 print(f"[{self.name}] Loading weights from {weights_path}...")
                 try:
