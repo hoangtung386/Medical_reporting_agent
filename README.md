@@ -46,8 +46,8 @@ Hệ thống được module hóa thành các thành phần độc lập, dễ d
 
 ### **2. Agent 2: Segmentation Specialist (Local Precision)**
 *   **Nhiệm vụ:** Phân đoạn chính xác các cơ quan và tổn thương (organs & lesions) ở cấp độ pixel.
-*   **Công nghệ:** **nnU-Net V2** (State-of-the-Art về segment y tế) kết hợp với **SAM-Med3D** để tinh chỉnh vùng biên (boundaries) dựa trên prompt.
-*   **Lợi ích:** Cung cấp thông tin định lượng chính xác (kích thước, vị trí, thể tích) mà các mô hình ngôn ngữ thường gặp khó khăn.
+*   **Công nghệ:** Hybrid Strategy (Chiến lược lai): **SuPreM** (SwinUNETR) cho phân đoạn 25 organ chính (Automatic) + **SAM-Med3D-turbo** cho tinh chỉnh vùng khó (Interactive/Refinement).
+*   **Lợi ích:** Cung cấp thông tin định lượng chính xác định lượng cao, linh hoạt xử lý các ca khó với prompt-based segmentation.
 
 ### **3. Agent 3: Knowledge Fusion & Orchestrator ("The Brain")**
 *   **Nhiệm vụ:** Lập kế hoạch (Planning) và Điều phối (Routing). Dựa trên input sơ bộ từ Agent 1 & 2, nó quyết định cần gọi những chuyên gia nào để xử lý ca bệnh này.
@@ -107,10 +107,15 @@ pip install -r requirements.txt
 ### 2. Cấu hình & Tải Trọng số Mô hình
 Do hệ thống chuyển sang dùng Local LLM (**gpt-oss-20b**), bạn không cần cấu hình API Key nữa. Thay vào đó, hãy đảm bảo bạn có đủ VRAM để chạy mô hình.
 
+#### Setup Agent 2 (Segmentation)
+Để sử dụng **Agent 2 (SuPreM + SAM-Med3D)**, bạn cần tải weights và cấu hình repo phụ thuộc. Chúng tôi đã cung cấp script tự động:
+
 ```bash
-# Weights sẽ được tự động tải từ Hugging Face khi chạy lần đầu
-# (hoặc bạn có thể tải thủ công về cache)
+# Cấp quyền và chạy script setup cho Agent 2
+chmod +x agents/agent_2_segmentation/download_setup.sh
+./agents/agent_2_segmentation/download_setup.sh
 ```
+*Script này sẽ tải ~700MB weights cho SuPreM và ~300MB cho SAM-Med3D-turbo.*
 
 ### 3. Chuẩn bị Dữ liệu (Da Preparation)
 Dự án sử dụng dataset **AbdomenAtlas 3.0 Mini**. Do kích thước dữ liệu lớn, chúng tôi cung cấp script để tải và giải nén tự động.
@@ -153,12 +158,13 @@ Chúng ta đã hoàn thành **Phase 1: Foundation Setup**. Để đưa hệ th�
 *   [x] **Robustness:** Cơ chế fallback thông minh (chạy được cả khi thiếu thư viện/GPU).
 *   [x] **Verification:** Kiểm thử luồng dữ liệu End-to-End thành công.
 *   [x] **Agent 1 Implementation:** Tích hợp SwinUNETR v1 (SuPreM weights).
+*   [x] **Agent 2 Implementation:** Tích hợp Hybrid Pipeline (SuPreM + SAM-Med3D).
 
 ### 📝 Cần thực hiện tiếp (Next Steps - Phase 2)
 
 #### 1. Tích hợp Trọng số Mô hình (Model Weights Integration)
-*   **Agent 2 (Segmentation):** Cài đặt **nnU-Net** đầy đủ và tải weights pre-trained cho organ segmentation (ví dụ: tập Totalsegmentator).
-    *   *Task:* Run `nnUNet_predict` command line wrapper hoặc python API.
+*   **Agent 8 (Report Gen):** Tải checkpoint **MedGemma-2B** và LoRA adapters.
+    *   *Task:* Update `model_id` trong `report_gen.py`.
 *   **Agent 8 (Report Gen):** Tải checkpoint **MedGemma-2B** và LoRA adapters.
     *   *Task:* Update `model_id` trong `report_gen.py`.
 
