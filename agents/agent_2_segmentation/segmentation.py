@@ -2,154 +2,150 @@
 Agent 2: Segmentation Specialist (SuPreM + SAM-Med3D).
 """
 from ..base import BaseAgent
-from typing import Dict, Tuple, Any, Optional
+from typing import Dict, Tuple, Any, Optional, Union, List
 import numpy as np
 import os
 import sys
-
-# Ensure we can import from the cloned repos if needed
-# (Optional: user can install them as packages, but simple path addition helps if just cloned)
-current_dir = os.path.dirname(os.path.abspath(__file__))
-# sys.path.append(os.path.join(current_dir, "repos", "SAM-Med3D"))
 
 try:
     import torch
     import torch.nn.functional as F
     import SimpleITK as sitk
     from monai.networks.nets import SwinUNETR
+    Tensor = torch.Tensor
 except ImportError:
     torch = None
     sitk = None
     SwinUNETR = None
+    Tensor = Any
 
 class SegmentationSpecialistAgent(BaseAgent):
     """
-    Agent 2: Segmentation Specialist (Hybrid: SuPreM + SAM-Med3D).
-    
-    Strategy:
-    1. Primary: SuPreM (SwinUNETR) for fast, automatic segmentation of 25 organs.
-    2. Refinement: SAM-Med3D for challenging organs or low-confidence predictions.
+    Hybrid pipeline: SuPreM (primary) + SAM-Med3D-turbo (refinement)
     """
+    
     def __init__(self, device="cuda"):
+        # Keep BaseAgent inheritance for system compatibility
         super().__init__(name="Agent 2: Segmentation Specialist")
         
-        # Determine device
-        if torch and torch.cuda.is_available() and device == "cuda":
-            self.device = "cuda"
-        else:
-            self.device = "cpu"
-            
-        print(f"[{self.name}] Initializing on {self.device}...")
-
-        self.primary_model = None
-        self.refinement_model = None
+        self.device = device if (torch and torch.cuda.is_available()) else "cpu"
         
-        # Paths
+        # Paths (System specific)
         self.weights_dir = os.path.join(os.path.dirname(__file__), "pretrained_weights")
-        self.repos_dir = os.path.join(os.path.dirname(__file__), "repos")
         
-        # Configuration
+        # Confidence threshold
         self.confidence_threshold = 0.85
+        
+        # Challenging organs (lower baseline performance)
         self.challenging_organs = [
             'pancreas', 'duodenum', 'celiac_trunk', 
             'hepatic_vessel', 'portal_vein_and_splenic_vein'
         ]
 
         if SwinUNETR:
-            self.load_models()
+            # Primary: Load SuPreM (Swin UNETR)
+            print("Loading SuPreM (AbdomenAtlas 1.1)...")
+            self.primary_model = self.load_suprem_model()
+            
+            # Secondary: Load SAM-Med3D-turbo (optional)
+            print("Loading SAM-Med3D-turbo...")
+            self.refinement_model = self.load_sam_med3d_turbo()
         else:
-            print(f"[{self.name}] WARNING: Dependencies (monai, torch) not found. Running in mock mode.")
+             print(f"[{self.name}] WARNING: Dependencies (monai, torch) not found. Running in mock mode.")
+             self.primary_model = None
+             self.refinement_model = None
 
-    def load_models(self):
-        """Load SuPreM and optionally SAM-Med3D."""
-        # 1. Load SuPreM
+    def load_suprem_model(self):
+        """
+        Load SuPreM pretrained weights
+        Download from: https://github.com/MrGiovanni/SuPreM
+        """
         try:
-            print(f"[{self.name}] Loading SuPreM (AbdomenAtlas 1.1)...")
-            self.primary_model = SwinUNETR(
+            model = SwinUNETR(
                 img_size=(96, 96, 96),
                 in_channels=1,
-                out_channels=25,
+                out_channels=25,  # 25 organs
                 feature_size=48,
                 use_checkpoint=True
             ).to(self.device)
             
-            suprem_path = os.path.join(self.weights_dir, "supervised_suprem_swinunetr_2100.pth")
-            if os.path.exists(suprem_path):
-                checkpoint = torch.load(suprem_path, map_location=self.device)
+            # Load pretrained weights
+            weight_path = os.path.join(self.weights_dir, "supervised_suprem_swinunetr_2100.pth")
+            if os.path.exists(weight_path):
+                checkpoint = torch.load(weight_path, map_location=self.device)
+                
+                # Handle possible dict structure
                 state_dict = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
-                self.primary_model.load_state_dict(state_dict)
-                self.primary_model.eval()
+                model.load_state_dict(state_dict)
+                model.eval()
                 print(f"[{self.name}] SuPreM loaded successfully.")
+                return model
             else:
-                print(f"[{self.name}] WARNING: SuPreM weights not found at {suprem_path}")
-                self.primary_model = None
+                print(f"[{self.name}] WARNING: SuPreM weights not found at {weight_path}")
+                return None
         except Exception as e:
             print(f"[{self.name}] Error loading SuPreM: {e}")
-            self.primary_model = None
-
-        # 2. Load SAM-Med3D (Lazy load or load here)
-        # For now, we'll keep it as a placeholder until the user sets it up specifically
-        # as it requires the specific SAM-Med3D codebase.
-        self.refinement_model = None 
-
+            return None
+    
     def load_sam_med3d_turbo(self):
         """
-        Load SAM-Med3D-turbo.
-        Requires SAM-Med3D to be installed or in python path.
+        Load SAM-Med3D-turbo
+        Download from: https://huggingface.co/blueyo0/SAM-Med3D
         """
-        try:
-            # This is pseudo-code/dependent on SAM-Med3D library structure
-            # from sam_med3d import SAMMed3D 
-            # self.refinement_model = SAMMed3D(checkpoint=..., device=self.device)
-            print(f"[{self.name}] SAM-Med3D loading not yet fully implemented (requires library installation).")
-        except Exception as e:
-            print(f"[{self.name}] Error loading SAM-Med3D: {e}")
-
-    def preprocess_volume(self, volume_np: np.ndarray) -> torch.Tensor:
-        """Standardize preprocessing: Clip and Normalize."""
-        # Window [-125, 275] for soft tissues/abdomen usually
-        # But SuPreM paper might use different ranges. Defaulting to standard abdomen window.
-        vol_clipped = np.clip(volume_np, -125, 275)
-        # Normalize 0-1
-        vol_norm = (vol_clipped - vol_clipped.min()) / (vol_clipped.max() - vol_clipped.min() + 1e-8)
+        # This is pseudo-code - adapt based on SAM-Med3D API
+        # from sam_med3d import SAMMed3D
         
-        # To Tensor [B, C, D, H, W]
-        # Assuming input is [D, H, W]
-        tensor = torch.from_numpy(vol_norm).float()
-        if tensor.ndim == 3:
-            tensor = tensor.unsqueeze(0).unsqueeze(0)
-        elif tensor.ndim == 4:
-            tensor = tensor.unsqueeze(0)
-            
-        return tensor.to(self.device)
-
-    def segment_with_suprem(self, tensor_vol: torch.Tensor) -> Tuple[Dict[str, np.ndarray], Dict[str, float]]:
-        """Run primary segmentation."""
+        # model = SAMMed3D(
+        #     checkpoint="ckpt/sam_med3d_turbo.pth",
+        #     device=self.device
+        # )
+        
+        # return model
+        return None # Placeholder until user installs SAM-Med3D lib
+    
+    def segment_with_suprem(
+        self, 
+        volume: Tensor
+    ) -> Tuple[Dict[str, np.ndarray], Dict[str, float]]:
+        """
+        Primary segmentation với SuPreM
+        
+        Returns:
+            masks: Dict {organ: mask}
+            confidences: Dict {organ: confidence_score}
+        """
         if self.primary_model is None:
             return {}, {}
-            
+
         with torch.no_grad():
-            # Sliding window inference might be needed for large volumes, 
-            # but for simplicity/snippet, we assume resize or patch-based.
-            # SuPreM takes 96x96x96 patches usually. 
-            # Ideally usage: monai.inferers.sliding_window_inference
-            from monai.inferers import sliding_window_inference
+            # NOTE: For real implementation with large volumes, we need Sliding Window Inference.
+            # But following user's structure:
+            # inputs = volume if volume.ndim == 5 else volume.unsqueeze(0)
             
-            output_logits = sliding_window_inference(
-                inputs=tensor_vol,
-                roi_size=(96, 96, 96),
-                sw_batch_size=4,
-                predictor=self.primary_model,
-                overlap=0.5
-            )
+            # To avoid shape errors with direct model call on mismatched size, 
+            # we check size or use monai sliding window if available.
+            # Providing simple fallback for this snippet context.
             
-            probs = torch.softmax(output_logits, dim=1)
-            pred_masks = torch.argmax(probs, dim=1) # [B, D, H, W]
+            if volume.shape[-1] != 96: # If input is not 96x96x96
+                 from monai.inferers import sliding_window_inference
+                 logits = sliding_window_inference(
+                    inputs=volume, 
+                    roi_size=(96, 96, 96), 
+                    sw_batch_size=4, 
+                    predictor=self.primary_model,
+                    overlap=0.5
+                )
+            else:
+                logits = self.primary_model(volume)  # [B, 25, D, H, W]
             
+            # Softmax + argmax
+            probs = torch.softmax(logits, dim=1)
+            pred_masks = torch.argmax(probs, dim=1)  # [B, D, H, W]
+            
+            # Convert to per-organ masks
             masks = {}
             confidences = {}
             
-            # Mapping from SuPreM paper/repo
             organ_labels = {
                 1: 'aorta', 2: 'gall_bladder', 3: 'kidney_left',
                 4: 'kidney_right', 5: 'liver', 6: 'pancreas',
@@ -165,65 +161,136 @@ class SegmentationSpecialistAgent(BaseAgent):
             
             batch_idx = 0
             for label_id, organ_name in organ_labels.items():
+                # Extract mask for this organ
                 organ_mask = (pred_masks[batch_idx] == label_id).cpu().numpy()
                 
-                # Mean probability of the predicted class
+                # Calculate confidence (mean probability for this organ)
                 organ_probs = probs[batch_idx, label_id, ...].cpu().numpy()
-                if organ_mask.any():
-                    confidence = float(organ_probs[organ_mask].mean())
+                confidence = float(organ_probs[organ_mask].mean()) if organ_mask.any() else 0.0
+                
+                if organ_mask.any():  # Only save if organ detected
                     masks[organ_name] = organ_mask
                     confidences[organ_name] = confidence
-                else:
-                    confidences[organ_name] = 0.0
-                    
-            return masks, confidences
-
-    def refine_with_sam(self, volume_tensor: torch.Tensor, coarse_mask: np.ndarray, organ_name: str) -> np.ndarray:
+        
+        return masks, confidences
+    
+    def refine_with_sam_med3d(
+        self,
+        volume: Tensor,
+        coarse_mask: np.ndarray,
+        organ_name: str
+    ) -> np.ndarray:
         """
-        Refine mask with SAM-Med3D-turbo.
-        (Placeholder for logic).
+        Refine mask với SAM-Med3D-turbo
+        Use coarse mask as prompt
         """
-        # If model not satisfied, return coarse
         if self.refinement_model is None:
             return coarse_mask
-            
-        # Logic to generate prompts and predict
-        return coarse_mask
 
-    def forward(self, ct_volume: np.ndarray, use_refinement: bool = True) -> Dict[str, Any]:
+        # Generate prompts from coarse mask
+        # Strategy: Use centroid + boundary points
+        coords = np.argwhere(coarse_mask > 0.5)
+        
+        if len(coords) == 0:
+            return coarse_mask
+        
+        # Centroid
+        centroid = coords.mean(axis=0).astype(int)
+        
+        # Boundary points (optional: add more points for complex shapes)
+        # For now, just use centroid + bbox
+        bbox_min = coords.min(axis=0)
+        bbox_max = coords.max(axis=0)
+        
+        # SAM-Med3D inference
+        # (Pseudo-code - adapt based on actual API)
+        # refined_mask = self.refinement_model.predict(
+        #     image=volume,
+        #     point_prompts=[centroid],
+        #     box_prompt=[bbox_min, bbox_max]
+        # )
+        
+        return coarse_mask # return defined_mask when implemented
+    
+    def preprocess(self, volume: np.ndarray) -> np.ndarray:
+        """Standardize preprocessing"""
+        # Window
+        volume = np.clip(volume, -125, 275)
+        
+        # Normalize
+        volume = (volume - volume.min()) / (volume.max() - volume.min() + 1e-8)
+        
+        return volume
+    
+    def calculate_measurements(
+        self, 
+        masks: Dict[str, np.ndarray],
+        spacing=(1.0, 1.0, 1.0)
+    ) -> Dict[str, Dict]:
         """
-        Main pipeline.
-        
-        Args:
-            ct_volume: Numpy array [D, H, W]
-            use_refinement: Whether to use SAM for challenging/low-conf organs.
+        Deterministic measurements
         """
-        print(f"[{self.name}] Starting segmentation...")
+        metrics = {}
+        voxel_vol = spacing[0] * spacing[1] * spacing[2]
         
-        if self.primary_model is None and torch is not None:
-            # Try reloading if missing (e.g. first run)
-            self.load_models()
+        for name, mask in masks.items():
+            vol_mm3 = float(np.sum(mask > 0) * voxel_vol)
+            metrics[name] = {"volume_mm3": vol_mm3, "volume_ml": vol_mm3 / 1000.0}
+            
+        return metrics
+
+    def forward(
+        self,
+        ct_input: Union[str, np.ndarray],
+        vision_features: Any = None, # kept for signature compatibility with main.py
+        use_refinement: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Main pipeline
+        """
+        print(f"🔄 Processing Input...")
         
+        # Handle Input: Path vs Numpy
+        if isinstance(ct_input, str):
+            if sitk:
+                img = sitk.ReadImage(ct_input)
+                volume = sitk.GetArrayFromImage(img)
+            else:
+                print("SimpleITK not installed, cannot read file path.")
+                return {}
+        else:
+             volume = ct_input
+
+        # Mock fallback if models not loaded
         if self.primary_model is None:
-            print(f"[{self.name}] Model not loaded. Returning mock data.")
-            return {
-                "masks": {"liver": np.zeros_like(ct_volume)}, 
-                "metadata": {}, 
-                "status": "Failed (Mocked)"
-            }
+             print("MODELS NOT LOADED. RETURNING MOCK.")
+             return {
+                "masks": {"liver": np.zeros_like(volume)},
+                "metrics": self.calculate_measurements({"liver": np.zeros_like(volume)}),
+                "status": "Mocked"
+             }
 
         # Preprocess
-        tensor_vol = self.preprocess_volume(ct_volume)
+        volume = self.preprocess(volume)
+        volume_tensor = torch.from_numpy(volume).float()
         
-        # Step 1: SuPreM
-        masks, confidences = self.segment_with_suprem(tensor_vol)
+        if volume_tensor.ndim == 3:
+             volume_tensor = volume_tensor.unsqueeze(0).unsqueeze(0)
+        elif volume_tensor.ndim == 4:
+             volume_tensor = volume_tensor.unsqueeze(0)
+             
+        volume_tensor = volume_tensor.to(self.device)
         
+        # Step 1: Primary segmentation
+        print("  → Step 1: Primary segmentation (SuPreM)...")
+        masks, confidences = self.segment_with_suprem(volume_tensor)
+        
+        # Step 2: Optional refinement
         final_masks = {}
         metadata = {}
         
-        # Step 2: Refinement decision
         for organ, mask in masks.items():
-            confidence = confidences.get(organ, 0.0)
+            confidence = confidences[organ]
             needs_refinement = (
                 use_refinement and (
                     confidence < self.confidence_threshold or
@@ -232,18 +299,37 @@ class SegmentationSpecialistAgent(BaseAgent):
             )
             
             if needs_refinement and self.refinement_model:
-                print(f"[{self.name}] Refining {organ} (conf={confidence:.2f})...")
-                refined_mask = self.refine_with_sam(tensor_vol, mask, organ)
+                print(f"  → Step 2: Refining {organ} (confidence={confidence:.2f})...")
+                refined_mask = self.refine_with_sam_med3d(
+                    volume_tensor, mask, organ
+                )
                 final_masks[organ] = refined_mask
-                metadata[organ] = {'confidence': confidence, 'refined': True}
+                
+                metadata[organ] = {
+                    'confidence': confidence,
+                    'refined': True,
+                    'method': 'SuPreM + SAM-Med3D-turbo'
+                }
             else:
                 final_masks[organ] = mask
-                metadata[organ] = {'confidence': confidence, 'refined': False}
-                
+                metadata[organ] = {
+                    'confidence': confidence,
+                    'refined': False,
+                    'method': 'SuPreM only'
+                }
+        
+        print(f"✅ Segmented {len(final_masks)} organs")
+        
+        # Calculate measurements
+        # Assuming isotropic 1x1x1 spacing if passing raw numpy, or use metadata if available.
+        measurements = self.calculate_measurements(final_masks)
+        
+        # Return Dict compatible with main.py
         return {
             "masks": final_masks,
-            "metadata": metadata,
-            "status": "Success"
+            "metrics": measurements, 
+            "metadata": metadata
         }
+
 
         
