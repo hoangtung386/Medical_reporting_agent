@@ -117,7 +117,7 @@ chmod +x agents/agent_2_segmentation/download_setup.sh
 ```
 *Script này sẽ tải ~700MB weights cho SuPreM và ~300MB cho SAM-Med3D-turbo.*
 
-### 3. Chuẩn bị Dữ liệu (Da Preparation)
+### 3. Chuẩn bị Dữ liệu (Data Preparation)
 Dự án sử dụng dataset **AbdomenAtlas 3.0 Mini**. Do kích thước dữ liệu lớn, chúng tôi cung cấp script để tải và giải nén tự động.
 
 **Cách 1: Sử dụng Shell Script (Khuyến nghị)**
