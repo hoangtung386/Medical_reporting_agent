@@ -1,0 +1,45 @@
+# Training Configuration
+
+# Model settings
+model:
+  name: "google/medgemma-2b"
+  use_lora: true
+  lora_r: 16
+  lora_alpha: 32
+  seg_model: "swinunetr"
+  seg_weights_path: "checkpoints/suprem_swinunetr.pth"
+
+# Data settings
+data:
+  train_path: "data/train"
+  val_path: "data/val"
+  test_path: "data/test"
+  batch_size: 4
+  num_workers: 4
+  max_report_length: 512
+
+# Training settings
+num_epochs: 50
+learning_rate: 1e-4
+weight_decay: 0.01
+warmup_steps: 1000
+gradient_accumulation_steps: 4
+fp16: true
+
+# Evaluation
+eval_every: 2  # Evaluate every N epochs
+save_every: 5  # Save checkpoint every N epochs
+
+# Logging
+output_dir: "checkpoints"
+log_dir: "logs"
+wandb_project: "medical-report-generation"
+wandb_entity: null  # Your W&B username
+
+# Experiment settings
+use_rag: false  # Enable for ablation study
+freeze_segmentation: true  # Don't update seg model during training
+
+# Hardware
+device: "cuda"
+mixed_precision: true
