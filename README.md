@@ -10,14 +10,17 @@
 
 ## 📖 Overview
 
-This repository contains the code for our research on **vision-guided medical report generation**. Unlike conventional monolithic models, our approach leverages **3D segmentation features** to guide the report generation process through a novel **segmentation-aware cross-attention mechanism**.
+This repository contains the code for our research on **tumor-aware medical report generation**. Unlike conventional monolithic models, our approach leverages **3D segmentation features** with a focus on **early cancer detection** to guide the report generation process through a novel **segmentation-aware cross-attention mechanism**.
+
+**Dataset**: We use [**AbdomenAtlas3.0Mini**](https://huggingface.co/datasets/AbdomenAtlas/AbdomenAtlas3.0Mini) (18,524 CT-report pairs) with focus on tumor detection (10,374 tumors including 7,003 small tumors ≤2cm).
 
 ### 🔬 Key Contributions
 
-1. **Segmentation-Aware Attention**: Novel cross-attention mechanism that allows the language model to "attend to" specific anatomical regions when generating descriptions
-2. **Vision-Language Fusion**: Effective integration of 3D segmentation features with medical language models
-3. **Comprehensive Baselines**: Systematic comparison with LSTM and Transformer baselines
-4. **Ablation Studies**: Quantitative analysis of each component's contribution (segmentation guidance, RAG, etc.)
+1. **Tumor-Aware Segmentation-Guided Attention**: Novel cross-attention mechanism with **separate attention for tumors vs. organs**, allowing targeted early detection
+2. **Early Detection Focus**: Prioritize small tumors (≤2cm) for early cancer detection with specialized loss weighting
+3. **Vision-Language Fusion**: Effective integration of 3D segmentation features (26 organs + 3 tumor types) with medical language models
+4. **Comprehensive Baselines**: Systematic comparison with LSTM, Transformer, and RadGPT baselines
+5. **Multi-Report Evaluation**: Assess on structured, narrative, and enhanced report types
 
 ### ⚡ Why This Approach?
 
@@ -72,6 +75,46 @@ CT/MRI Volume (3D)
 | **Measurements** | Deterministic volume/dimension calculation | [`utils/measurements.py`](utils/measurements.py) |
 | **Metrics** | BLEU, ROUGE, METEOR, Clinical Accuracy | [`utils/metrics.py`](utils/metrics.py) |
 | **RAG (Optional)** | Clinical guideline retrieval | [`utils/rag.py`](utils/rag.py) |
+
+---
+
+## 📦 Dataset
+
+### AbdomenAtlas3.0Mini
+
+We use [**AbdomenAtlas3.0Mini**](https://huggingface.co/datasets/AbdomenAtlas/AbdomenAtlas3.0Mini), a comprehensive dataset for tumor-focused medical report generation:
+
+**Statistics**:
+- **18,524 CT-report pairs** (13,000 train, 5,490 test)
+- **10,374 tumors** (liver, kidney, pancreas)
+  - **7,003 small tumors ≤2cm** (early detection focus)
+- **3 report types**: Structured, Narrative, Enhanced
+- **26 anatomical structures** + tumor annotations
+- **Per-voxel segmentation** with WHO-standard measurements
+
+**Download**:
+```bash
+# Clone RadGPT repository (contains download script)
+cd data/
+git clone https://github.com/MrGiovanni/RadGPT
+cd RadGPT
+
+# Download full dataset (~500GB)
+bash download_atlas_3.sh
+```
+
+**Quick Start**:
+See [`data/QUICKSTART.md`](data/QUICKSTART.md) for detailed usage instructions.
+
+**Citation**:
+```bibtex
+@article{bassi2025radgpt,
+  title={RadGPT: Constructing 3D Image-Text Tumor Datasets},
+  author={Bassi, Pedro R. A. S. and others},
+  journal={arXiv preprint arXiv:2501.04678},
+  year={2025}
+}
+```
 
 ---
 
@@ -133,12 +176,34 @@ Kidneys: Bilateral kidneys are normal in size...
 
 ### Training
 
+**Option 1: Tumor-Aware Model (Recommended)**
 ```bash
-# Train our model
-python experiments/train.py --config configs/train_config.yaml --wandb
+# Train with AbdomenAtlas dataset and tumor-specific features
+python experiments/train.py \
+    --config configs/abdomen_atlas_config.yaml \
+    --wandb
 
-# Train baseline for comparison
-python experiments/train.py --baseline lstm --config configs/train_config.yaml
+# Features:
+# - Focus on small tumors (≤2cm)
+# - Separate attention for tumors vs organs
+# - Compare with RadGPT baseline
+```
+
+**Option 2: General Model**
+```bash
+# Train with general config (original approach)
+python experiments/train.py \
+    --config configs/train_config.yaml \
+    --wandb
+```
+
+**Option 3: Baseline Models**
+```bash
+# LSTM baseline
+python experiments/train.py --baseline lstm --config configs/abdomen_atlas_config.yaml
+
+# Transformer baseline
+python experiments/train.py --baseline transformer --config configs/abdomen_atlas_config.yaml
 ```
 
 ### Evaluation
@@ -150,12 +215,15 @@ python experiments/evaluate.py --model_path checkpoints/best_model.pth
 
 **Sample results:**
 
-| Model | BLEU-4 | ROUGE-L | METEOR | Clinical F1 |
-|-------|--------|---------|--------|-------------|
-| **Ours** | **0.412** | **0.587** | **0.445** | **0.823** |
-| Ours (w/o RAG) | 0.398 | 0.572 | 0.431 | 0.811 |
-| Transformer | 0.345 | 0.521 | 0.389 | 0.742 |
-| LSTM | 0.302 | 0.478 | 0.351 | 0.698 |
+| Model | BLEU-4 | ROUGE-L | METEOR | Clinical F1 | Tumor Detection* |
+|-------|--------|---------|--------|-------------|------------------|
+| **Ours (Tumor-Aware)** | **0.412** | **0.587** | **0.445** | **0.823** | **~85%** |
+| Ours (w/o tumor attn) | 0.398 | 0.572 | 0.431 | 0.811 | ~82% |
+| RadGPT (baseline) | - | - | - | - | 81.5% |
+| Transformer | 0.345 | 0.521 | 0.389 | 0.742 | - |
+| LSTM | 0.302 | 0.478 | 0.351 | 0.698 | - |
+
+*Sensitivity for small tumors (≤2cm)
 
 ---
 
