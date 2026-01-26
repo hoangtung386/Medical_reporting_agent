@@ -179,7 +179,8 @@ Kidneys: Bilateral kidneys are normal in size...
 **Option 1: Tumor-Aware Model (Recommended)**
 ```bash
 # Train with AbdomenAtlas dataset and tumor-specific features
-python experiments/train.py \
+# Train with AbdomenAtlas dataset and tumor-specific features
+python -m experiments.train \
     --config configs/abdomen_atlas_config.yaml \
     --wandb
 
@@ -200,17 +201,18 @@ python experiments/train.py \
 **Option 3: Baseline Models**
 ```bash
 # LSTM baseline
-python experiments/train.py --baseline lstm --config configs/abdomen_atlas_config.yaml
+python -m experiments.train --baseline lstm --config configs/abdomen_atlas_config.yaml
 
 # Transformer baseline
-python experiments/train.py --baseline transformer --config configs/abdomen_atlas_config.yaml
+python -m experiments.train --baseline transformer --config configs/abdomen_atlas_config.yaml
 ```
 
 ### Evaluation
 
 ```bash
 # Evaluate on test set and compare all models
-python experiments/evaluate.py --model_path checkpoints/best_model.pth
+# Evaluate on test set and compare all models
+python -m experiments.evaluate --model_path checkpoints/best_model.pth
 ```
 
 **Sample results:**

@@ -14,7 +14,7 @@ data:
     - "pancreas_tumor"
   
   # Data paths (download first with download_atlas_3.sh)
-  data_dir: "data/AbdomenAtlas3.0"
+  data_dir: "dataset_Abdomen_Atlas_3.0_mini_small"
   train_path: "data/AbdomenAtlas3.0/train"
   val_path: "data/AbdomenAtlas3.0/val"
   test_path: "data/AbdomenAtlas3.0/test"

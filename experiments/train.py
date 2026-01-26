@@ -46,7 +46,8 @@ def train_epoch(
     train_loader,
     optimizer,
     device,
-    epoch
+    epoch,
+    trainer=None
 ):
     """
     Train for one epoch.
@@ -66,9 +67,25 @@ def train_epoch(
             seg_output = seg_model(ct_volume, return_features=True)
         
         # Forward pass through report generator
-        # TODO: Implement teacher forcing training
-        # For now, placeholder
-        loss = torch.tensor(0.0, requires_grad=True)  # Replace with actual loss
+        # We need a Trainer instance or call the loss method directly
+        # For simplicity, we assume 'model' here is the trainer or we create one
+        # Ideally, we should refactor main() to pass a trainer, but let's just 
+        # use the method if we can, or instantiate the helper class.
+        
+        # NOTE: In main(), we probably want to wrap 'model' in ReportGeneratorTrainer
+        # But for minimal changes, let's just do:
+        
+        # Get features
+        seg_features = seg_output['features']['bottleneck']
+        measurements = seg_output.get('measurements', {})
+        
+        # Compute loss
+        # We need to access the trainer's compute_loss method. 
+        # Since we modified main() to pass just 'model' (which is the nn.Module), 
+        # let's create a temporary helper or assume we change main() too.
+        # Let's change main() to create the trainer.
+        
+        loss = trainer.compute_loss(seg_features, measurements, target_report)
         
         # Backward
         optimizer.zero_grad()
@@ -131,15 +148,30 @@ def main():
     print(f"Using device: {device}")
     
     # Load data
-    # TODO: Implement CTReportDataset
-    # train_dataset = CTReportDataset(config['data']['train_path'])
-    # val_dataset = CTReportDataset(config['data']['val_path'])
-    # train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True)
-    # val_loader = DataLoader(val_dataset, batch_size=config['batch_size'])
+    from data.datasets.loader import AbdomenAtlasDataset
     
-    print("WARNING: Using mock data loaders. Implement CTReportDataset in data/datasets/")
-    train_loader = []  # Placeholder
-    val_loader = []  # Placeholder
+    print(f"Loading dataset from {config['data']['data_dir']}...")
+    train_dataset = AbdomenAtlasDataset(
+        root_dir=config['data']['data_dir'],
+        split='train'
+    )
+    val_dataset = AbdomenAtlasDataset(
+        root_dir=config['data']['data_dir'],
+        split='val'
+    )
+    
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=config['training']['batch_size'], 
+        shuffle=True,
+        num_workers=0 # Windows typically needs 0 for simple scripts
+    )
+    val_loader = DataLoader(
+        val_dataset, 
+        batch_size=config['training']['batch_size'],
+        shuffle=False,
+        num_workers=0
+    )
     
     # Load models
     if args.baseline:
@@ -158,22 +190,21 @@ def main():
             device=device
         )
     
-    # Optimizer
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=config['learning_rate'],
-        weight_decay=config['weight_decay']
-    )
+    # Optimizer is now handled by ReportGeneratorTrainer
+    
+    # Trainer wrapper
+    from models.generation.medgemma import ReportGeneratorTrainer
+    trainer = ReportGeneratorTrainer(model, learning_rate=config['training']['learning_rate'])
     
     # Training loop
     best_metric = 0.0
-    for epoch in range(config['num_epochs']):
+    for epoch in range(config['training']['num_epochs']):
         print(f"\n{'='*50}")
-        print(f"Epoch {epoch+1}/{config['num_epochs']}")
+        print(f"Epoch {epoch+1}/{config['training']['num_epochs']}")
         print(f"{'='*50}")
         
         # Train
-        train_loss = train_epoch(model, seg_model, train_loader, optimizer, device, epoch)
+        train_loss = train_epoch(model, seg_model, train_loader, trainer.optimizer, device, epoch, trainer)
         print(f"Train loss: {train_loss:.4f}")
         
         # Evaluate

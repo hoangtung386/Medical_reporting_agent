@@ -416,15 +416,48 @@ class ReportGeneratorTrainer:
             loss: Cross-entropy loss
         """
         # Tokenize target
-        target_tokens = self.model.tokenizer(
+        # Add labels for causal language modeling
+        inputs = self.model.tokenizer(
             target_report,
             return_tensors="pt",
             padding=True,
-            truncation=True
+            truncation=True,
+            max_length=512,
+            add_special_tokens=True
         ).to(self.model.device)
         
-        # Forward pass
-        # TODO: Implement teacher forcing training
-        # This requires modifying forward() to accept target tokens
+        # Get embeddings for text
+        text_embeds = self.model.llm.get_input_embeddings()(inputs['input_ids'])
         
-        raise NotImplementedError("Training loop to be implemented")
+        # Encode features
+        seg_sequence = self.model.encode_segmentation_features(seg_features)
+        measurement_emb = self.model.encode_measurements(measurements)
+        
+        # Combine embeddings: [Seg | Meas | Text]
+        # Dimensions: [B, 8, H] | [B, 1, H] | [B, L, H]
+        measurement_emb = measurement_emb.unsqueeze(1)
+        
+        combined_embeds = torch.cat([
+            seg_sequence, 
+            measurement_emb, 
+            text_embeds
+        ], dim=1)
+        
+        # Create labels
+        # Classification loss only on text part
+        # -100 is ignored by CrossEntropyLoss
+        batch_size = combined_embeds.shape[0]
+        prefix_len = seg_sequence.shape[1] + measurement_emb.shape[1]
+        
+        text_labels = inputs['input_ids']
+        prefix_labels = torch.full((batch_size, prefix_len), -100, device=self.model.device)
+        
+        labels = torch.cat([prefix_labels, text_labels], dim=1)
+        
+        # Forward pass
+        outputs = self.model.llm(
+            inputs_embeds=combined_embeds,
+            labels=labels
+        )
+        
+        return outputs.loss
