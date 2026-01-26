@@ -384,9 +384,9 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ## 📧 Contact
 
 For research inquiries:
-- **Email**: your.email@institution.edu
-- **Lab Website**: https://your-lab.edu
-- **GitHub Issues**: For technical questions
+- **Author**: Le Vu Hoang Tung
+- **Email**: levuhoangtung1542003@gmail.com 
+- **GitHub Issues**: [For technical questions](https://github.com/hoangtung386/Medical_reporting_agent/issues)
 
 ---
 
