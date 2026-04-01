@@ -1,0 +1,62 @@
+# ===================== Python =====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+
+# ===================== Virtual environments =====================
+venv/
+.venv/
+env/
+.uv/
+
+# ===================== IDE =====================
+.idea/
+.vscode/
+*.swp
+*.swo
+.claude/
+
+# ===================== Datasets (large, download separately) =====================
+# AbdomenAtlas 3.0 Mini (~500 GB full, ~20 GB mini)
+# Download via: bash download_data.sh
+# Or see: data/QUICKSTART.md
+data/image_only/
+data/mask_only/
+data/TrainTestIDS/
+data/AbdomenAtlas3.0MiniWithMeta.csv
+data/rag_db/
+
+# External dataset directories (cloned or extracted)
+dataset_Abdomen_Atlas_*/
+RadGPT/
+
+# Tarball intermediaries from download script
+data/image_only/*.tar.gz
+data/mask_only/*.tar.gz
+
+# ===================== Checkpoints & outputs =====================
+checkpoints/
+*.pth
+*.pt
+
+# NIfTI volumes (only those outside the tracked data/ structure)
+*.nii
+*.nii.gz
+
+# ===================== Experiment outputs =====================
+logs/
+results/
+wandb/
+
+# ===================== OS =====================
+.DS_Store
+Thumbs.db
+
+# ===================== Misc =====================
+*.log
+.env
+REFACTORING_GUIDE.md
