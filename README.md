@@ -8,21 +8,21 @@
 
 ---
 
-## 📖 Overview
+## Overview
 
-This repository contains the code for our research on **tumor-aware medical report generation**. Unlike conventional monolithic models, our approach leverages **3D segmentation features** with a focus on **early cancer detection** to guide the report generation process through a novel **segmentation-aware cross-attention mechanism**.
+This repository contains the code for our research on **tumour-aware medical report generation**. Our approach leverages **3D segmentation features** with a focus on **early cancer detection** to guide the report generation process through a novel **segmentation-aware cross-attention mechanism**.
 
-**Dataset**: We use [**AbdomenAtlas3.0Mini**](https://huggingface.co/datasets/AbdomenAtlas/AbdomenAtlas3.0Mini) (18,524 CT-report pairs) with focus on tumor detection (10,374 tumors including 7,003 small tumors ≤2cm).
+**Dataset**: [**AbdomenAtlas3.0Mini**](https://huggingface.co/datasets/AbdomenAtlas/AbdomenAtlas3.0Mini) (18,524 CT-report pairs) with focus on tumour detection (10,374 tumours including 7,003 small tumours <=2 cm).
 
-### 🔬 Key Contributions
+### Key Contributions
 
-1. **Tumor-Aware Segmentation-Guided Attention**: Novel cross-attention mechanism with **separate attention for tumors vs. organs**, allowing targeted early detection
-2. **Early Detection Focus**: Prioritize small tumors (≤2cm) for early cancer detection with specialized loss weighting
-3. **Vision-Language Fusion**: Effective integration of 3D segmentation features (26 organs + 3 tumor types) with medical language models
-4. **Comprehensive Baselines**: Systematic comparison with LSTM, Transformer, and RadGPT baselines
-5. **Multi-Report Evaluation**: Assess on structured, narrative, and enhanced report types
+1. **Tumour-Aware Segmentation-Guided Attention** -- Novel cross-attention mechanism with separate attention for tumours vs. organs, enabling targeted early detection
+2. **Early Detection Focus** -- Prioritise small tumours (<=2 cm) for early cancer detection with specialised loss weighting
+3. **Vision-Language Fusion** -- Effective integration of 3D segmentation features (26 organs + 3 tumour types) with medical language models
+4. **Comprehensive Baselines** -- Systematic comparison with LSTM, Transformer, and RadGPT baselines
+5. **Multi-Report Evaluation** -- Assess on structured, narrative, and enhanced report types
 
-### ⚡ Why This Approach?
+### Why This Approach?
 
 **Problem with existing methods:**
 - Generic vision-language models ignore fine-grained anatomical structure
@@ -31,80 +31,78 @@ This repository contains the code for our research on **tumor-aware medical repo
 
 **Our solution:**
 - Use 3D segmentation to provide **anatomical grounding**
-- Cross-attention mechanism ensures model "looks at" relevant regions
+- Cross-attention mechanism ensures the model "looks at" relevant regions
 - Deterministic measurement extraction for factual accuracy
 
 ---
 
-## 🏗 Architecture
+## Architecture
 
 ```
 CT/MRI Volume (3D)
-        ↓
-┌───────────────────────┐
-│  Segmentation Module  │  (SwinUNETR + SuPreM weights)
-│  - Multi-scale features │
-│  - Organ masks          │
-└───────────────┬─────────┘
-                ↓
-        ┌───────┴──────┐
-        ↓              ↓
-┌──────────────┐  ┌─────────────────┐
-│ Measurements │  │ Encoder Features│
-│ (deterministic) │  │ (for attention) │
-└──────┬────────┘  └────────┬────────┘
-       ↓                    ↓
-       └───────┬────────────┘
-               ↓
-    ┌──────────────────────┐
-    │ Report Generator     │
-    │ (MedGemma-2B)        │
-    │ + Seg-Aware Attention│
-    └──────────┬───────────┘
-               ↓
-        Radiology Report
+        |
++------------------------+
+|  Segmentation Module   |  (SwinUNETR + SuPreM weights)
+|  - Multi-scale features|
+|  - Organ masks         |
++----------+-------------+
+           |
+     +-----+------+
+     |            |
++-----------+ +----------------+
+| Measure-  | | Encoder        |
+| ments     | | Features       |
+| (determ.) | | (for attention)|
++-----+-----+ +-------+--------+
+      |               |
+      +-------+-------+
+              |
+   +---------------------+
+   | Report Generator     |
+   | (MedGemma-2B + LoRA) |
+   | + Seg-Aware Attention |
+   +----------+-----------+
+              |
+       Radiology Report
 ```
 
 ### Core Components
 
 | Component | Description | Location |
 |-----------|-------------|----------|
-| **Segmentation Model** | 3D SwinUNETR with multi-scale feature extraction | [`models/segmentation/`](models/segmentation/) |
-| **Report Generator** | MedGemma-2B with segmentation-aware cross-attention | [`models/generation/`](models/generation/) |
-| **Baseline Models** | LSTM, Transformer baselines for comparison | [`models/baselines/`](models/baselines/) |
-| **Measurements** | Deterministic volume/dimension calculation | [`utils/measurements.py`](utils/measurements.py) |
-| **Metrics** | BLEU, ROUGE, METEOR, Clinical Accuracy | [`utils/metrics.py`](utils/metrics.py) |
-| **RAG (Optional)** | Clinical guideline retrieval | [`utils/rag.py`](utils/rag.py) |
+| **Segmentation Model** | 3D SwinUNETR with multi-scale feature extraction | `models/segmentation/` |
+| **Cross-Attention** | Novel segmentation-aware attention layer | `models/generation/attention.py` |
+| **Report Generator** | MedGemma-2B with LoRA + cross-attention fusion | `models/generation/medgemma.py` |
+| **Training Utilities** | Trainer wrapper with loss computation | `models/generation/trainer.py` |
+| **Baseline Models** | LSTM, Transformer, SimpleCNN-LSTM for comparison | `models/baselines/` |
+| **Measurements** | Deterministic volume / dimension calculation | `utils/measurements.py` |
+| **Metrics** | BLEU, ROUGE, METEOR, Clinical Accuracy | `utils/metrics.py` |
+| **RAG (Optional)** | Clinical guideline retrieval | `utils/rag.py` |
 
 ---
 
-## 📦 Dataset
+## Dataset
 
 ### AbdomenAtlas3.0Mini
 
-We use [**AbdomenAtlas3.0Mini**](https://huggingface.co/datasets/AbdomenAtlas/AbdomenAtlas3.0Mini), a comprehensive dataset for tumor-focused medical report generation:
+We use [**AbdomenAtlas3.0Mini**](https://huggingface.co/datasets/AbdomenAtlas/AbdomenAtlas3.0Mini), a comprehensive dataset for tumour-focused medical report generation:
 
 **Statistics**:
-- **18,524 CT-report pairs** (13,000 train, 5,490 test)
-- **10,374 tumors** (liver, kidney, pancreas)
-  - **7,003 small tumors ≤2cm** (early detection focus)
+- **18,524 CT-report pairs** (13,000 train / 5,490 test)
+- **10,374 tumours** (liver, kidney, pancreas)
+  - **7,003 small tumours <=2 cm** (early detection focus)
 - **3 report types**: Structured, Narrative, Enhanced
-- **26 anatomical structures** + tumor annotations
+- **26 anatomical structures** + tumour annotations
 - **Per-voxel segmentation** with WHO-standard measurements
 
 **Download**:
 ```bash
-# Clone RadGPT repository (contains download script)
-cd data/
-git clone https://github.com/MrGiovanni/RadGPT
-cd RadGPT
+# Download via included script (~500 GB full)
+bash download_data.sh
 
-# Download full dataset (~500GB)
-bash download_atlas_3.sh
+# Or see the quick-start guide for lighter alternatives
+cat data/QUICKSTART.md
 ```
-
-**Quick Start**:
-See [`data/QUICKSTART.md`](data/QUICKSTART.md) for detailed usage instructions.
 
 **Citation**:
 ```bibtex
@@ -118,32 +116,42 @@ See [`data/QUICKSTART.md`](data/QUICKSTART.md) for detailed usage instructions.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Installation
 
+**With pip (standard):**
 ```bash
-# Clone repository
 git clone https://github.com/hoangtung386/Medical_reporting_agent.git
 cd Medical_reporting_agent
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
-# Install dependencies
-pip install -r requirements.txt
+pip install -e ".[dev]"          # install project + dev tools
+```
+
+**With uv (faster):**
+```bash
+git clone https://github.com/hoangtung386/Medical_reporting_agent.git
+cd Medical_reporting_agent
+
+uv venv
+uv pip install -e ".[dev]"
+
+# Or use the lock-file workflow:
+# uv lock && uv sync --extra dev
 ```
 
 ### 2. Download Pre-trained Weights
 
 ```bash
-# SuPreM weights for segmentation (SwinUNETR)
+# SuPreM weights for SwinUNETR segmentation
+mkdir -p checkpoints
 wget https://github.com/MrGiovanni/SuPreM/releases/download/v0.1.0/supervised_suprem_swinunetr_2100.pth \
      -O checkpoints/suprem_swinunetr.pth
 
-# MedGemma-2B (automatic via Hugging Face)
-# Will download on first run
+# MedGemma-2B downloads automatically on first run via HuggingFace
 ```
 
 ### 3. Run Demo
@@ -152,7 +160,7 @@ wget https://github.com/MrGiovanni/SuPreM/releases/download/v0.1.0/supervised_su
 # Simple demo with mock data
 python main.py
 
-# Run on real CT scan
+# Run on a real CT scan
 python main.py --input data/sample_ct.nii.gz --output results/report.txt
 ```
 
@@ -170,32 +178,31 @@ Kidneys: Bilateral kidneys are normal in size...
 ======================================================================
 ```
 
+### 4. Run Tests
+
+```bash
+pytest                           # with pip
+# or
+uv run pytest                    # with uv
+```
+
 ---
 
-## 📊 Experiment Reproduction
+## Experiment Reproduction
 
 ### Training
 
-**Option 1: Tumor-Aware Model (Recommended)**
+**Option 1: Tumour-Aware Model (Recommended)**
 ```bash
-# Train with AbdomenAtlas dataset and tumor-specific features
-# Train with AbdomenAtlas dataset and tumor-specific features
 python -m experiments.train \
     --config configs/abdomen_atlas_config.yaml \
     --wandb
-
-# Features:
-# - Focus on small tumors (≤2cm)
-# - Separate attention for tumors vs organs
-# - Compare with RadGPT baseline
 ```
 
 **Option 2: General Model**
 ```bash
-# Train with general config (original approach)
-python experiments/train.py \
-    --config configs/train_config.yaml \
-    --wandb
+python -m experiments.train \
+    --config configs/base_config.yaml
 ```
 
 **Option 3: Baseline Models**
@@ -210,83 +217,111 @@ python -m experiments.train --baseline transformer --config configs/abdomen_atla
 ### Evaluation
 
 ```bash
-# Evaluate on test set and compare all models
-# Evaluate on test set and compare all models
 python -m experiments.evaluate --model_path checkpoints/best_model.pth
 ```
 
 **Sample results:**
 
-| Model | BLEU-4 | ROUGE-L | METEOR | Clinical F1 | Tumor Detection* |
-|-------|--------|---------|--------|-------------|------------------|
-| **Ours (Tumor-Aware)** | **0.412** | **0.587** | **0.445** | **0.823** | **~85%** |
-| Ours (w/o tumor attn) | 0.398 | 0.572 | 0.431 | 0.811 | ~82% |
+| Model | BLEU-4 | ROUGE-L | METEOR | Clinical F1 | Tumour Detection* |
+|-------|--------|---------|--------|-------------|-------------------|
+| **Ours (Tumour-Aware)** | **0.412** | **0.587** | **0.445** | **0.823** | **~85%** |
+| Ours (w/o tumour attn) | 0.398 | 0.572 | 0.431 | 0.811 | ~82% |
 | RadGPT (baseline) | - | - | - | - | 81.5% |
 | Transformer | 0.345 | 0.521 | 0.389 | 0.742 | - |
 | LSTM | 0.302 | 0.478 | 0.351 | 0.698 | - |
 
-*Sensitivity for small tumors (≤2cm)
+*Sensitivity for small tumours (<=2 cm)
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Medical_reporting_agent/
-├── configs/                    # Configuration files
-│   ├── model_config.yaml
-│   ├── data_config.yaml
-│   └── train_config.yaml
-│
-├── data/                       # Data management
-│   ├── datasets/               # Dataset classes
-│   └── preprocessing/          # Data preprocessing
-│
-├── models/                     # Core models
-│   ├── segmentation/           # 3D segmentation (SwinUNETR)
-│   ├── generation/             # Report generator (MedGemma)
-│   └── baselines/              # Baseline models
-│
-├── utils/                      # Utilities
-│   ├── measurements.py         # Volume/measurement calculation
-│   ├── metrics.py              # Evaluation metrics
-│   └── rag.py                  # RAG retrieval (optional)
-│
-├── experiments/                # Training & evaluation scripts
-│   ├── train.py
-│   └── evaluate.py
-│
-├── paper/                      # Paper materials
-│   ├── figures/
-│   └── draft.md
-│
-├── main.py                     # Demo script
-├── requirements.txt
-└── README.md
+|
+|-- configs/                        # Configuration files
+|   |-- base_config.yaml            #   General / default settings
+|   +-- abdomen_atlas_config.yaml   #   Tumour-aware experiment config
+|
+|-- data/                           # Data management
+|   |-- QUICKSTART.md               #   Dataset download & usage guide
+|   +-- datasets/
+|       |-- __init__.py
+|       +-- abdomen_atlas.py        #   AbdomenAtlas dataset loader + collate
+|
+|-- models/                         # Core models
+|   |-- __init__.py
+|   |-- segmentation/
+|   |   |-- __init__.py
+|   |   +-- swinunetr.py            #   SwinUNETR segmentation + wrapper
+|   |-- generation/
+|   |   |-- __init__.py
+|   |   |-- attention.py            #   SegmentationAwareAttention (novel)
+|   |   |-- medgemma.py             #   Report generator (MedGemma + LoRA)
+|   |   +-- trainer.py              #   Training loss / optimiser wrapper
+|   +-- baselines/
+|       |-- __init__.py
+|       |-- lstm.py                 #   LSTM baseline
+|       |-- transformer_baseline.py #   Transformer baseline
+|       +-- simple_cnn_lstm.py      #   CNN-LSTM baseline
+|
+|-- utils/                          # Utilities
+|   |-- __init__.py
+|   |-- logging.py                  #   Project-wide logging setup
+|   |-- measurements.py             #   Deterministic volume/dimension calc
+|   |-- metrics.py                  #   BLEU, ROUGE, METEOR, Clinical F1
+|   +-- rag.py                      #   RAG retrieval (optional)
+|
+|-- experiments/                    # Training & evaluation scripts
+|   |-- __init__.py
+|   |-- train.py
+|   +-- evaluate.py
+|
+|-- tests/                          # Test suite (pytest)
+|   |-- test_measurements.py
+|   |-- test_metrics.py
+|   |-- test_segmentation.py
+|   |-- test_generation.py
+|   +-- test_dataset.py
+|
+|-- docs/                           # Historical / design documentation
+|   |-- BEFORE_AFTER.md
+|   |-- RESTRUCTURE_SUMMARY.md
+|   |-- DATASET_ANALYSIS.md
+|   +-- DATASET_TESTING.md
+|
+|-- paper/                          # Paper materials
+|   +-- draft.md
+|
+|-- main.py                         # End-to-end demo script
+|-- download_data.sh                # Dataset download helper
+|-- requirements.txt                # Pip requirements (flat)
+|-- pyproject.toml                  # Project metadata, uv / pip editable
++-- README.md
 ```
 
 ---
 
-## 🔬 Research Details
+## Research Details
 
 ### Dataset
 
 We use **AbdomenAtlas 3.0** for training:
 - 9,262 CT scans with expert annotations
-- 25 abdominal organs labeled
-- Paired with radiology reports (proprietary hospital data)
+- 25 abdominal organs labelled
+- Paired with radiology reports
 
 **Data format:**
 ```python
 {
-    'ct_volume': torch.Tensor,  # [D, H, W]
-    'segmentation': torch.Tensor,  # [D, H, W] with organ labels
-    'report': str,  # Ground truth radiology report
-    'metadata': {
-        'patient_id': str,
-        'study_date': str,
-        'clinical_indication': str
-    }
+    "ct_volume": torch.Tensor,       # [1, D, H, W]
+    "report": str,                   # Ground-truth radiology report
+    "tumor_info": {                  # Tumour metadata from CSV
+        "liver":    {"volume_cm3": ..., "lesion_count": ..., ...},
+        "kidney":   {...},
+        "pancreas": {...},
+    },
+    "study_id": str,
 }
 ```
 
@@ -294,37 +329,37 @@ We use **AbdomenAtlas 3.0** for training:
 
 #### 1. Segmentation-Aware Cross-Attention
 
-Located in [`models/generation/medgemma.py`](models/generation/medgemma.py):
+Located in `models/generation/attention.py`:
 
 ```python
 class SegmentationAwareAttention(nn.Module):
     """
     Cross-attention between LLM hidden states and segmentation features.
-    Allows model to attend to specific anatomical regions.
+    Allows the model to attend to specific anatomical regions.
     """
     def forward(self, llm_hidden, seg_features):
-        # Query: from LLM
+        # Query: from LLM hidden states
         # Key/Value: from segmentation encoder
         attention_output = self.cross_attn(
             query=llm_hidden,
             key=seg_features,
-            value=seg_features
+            value=seg_features,
         )
         return attention_output
 ```
 
 **Why this works:**
-- When generating "liver: unremarkable", model attends to liver region
+- When generating "liver: unremarkable", the model attends to the liver region
 - Grounds language generation in visual anatomy
-- Reduces hallucinations by explicit visual reference
+- Reduces hallucinations through explicit visual reference
 
 #### 2. Deterministic Measurements
 
-Unlike AI-based "measurement agents", we use pure math ([`utils/measurements.py`](utils/measurements.py)):
+Unlike AI-based approaches we use pure mathematics (`utils/measurements.py`):
 
 ```python
 def calculate_volumes(masks, spacing):
-    """Pure numpy/scipy - no neural network"""
+    """Pure numpy/scipy -- no neural network."""
     volumes = {}
     for organ_id in unique_labels:
         voxel_count = np.sum(masks == organ_id)
@@ -333,21 +368,18 @@ def calculate_volumes(masks, spacing):
     return volumes
 ```
 
-**Benefits:**
-- 100% reproducible
-- No hallucinations
-- Clinically verifiable
+**Benefits:** 100 % reproducible, no hallucinations, clinically verifiable.
 
 ---
 
-## 📝 Citation
+## Citation
 
 If you use this code in your research, please cite:
 
 ```bibtex
 @article{your2026vision,
   title={Vision-Guided Medical Report Generation via Segmentation-Aware Attention},
-  author={Your Name and Collaborators},
+  author={Le Vu Hoang Tung},
   journal={arXiv preprint arXiv:XXXX.XXXXX},
   year={2026}
 }
@@ -355,7 +387,7 @@ If you use this code in your research, please cite:
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 This is research code. To maintain reproducibility:
 
@@ -366,13 +398,13 @@ This is research code. To maintain reproducibility:
 
 ---
 
-## 📄 License
+## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT License -- see [LICENSE](LICENSE) for details.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **SuPreM**: Pre-trained segmentation weights ([GitHub](https://github.com/MrGiovanni/SuPreM))
 - **MedGemma**: Medical language model ([Hugging Face](https://huggingface.co/google/medgemma-2b))
@@ -381,18 +413,27 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-## 📧 Contact
+## Contact
 
 For research inquiries:
 - **Author**: Le Vu Hoang Tung
-- **Email**: levuhoangtung1542003@gmail.com 
+- **Email**: levuhoangtung1542003@gmail.com
 - **GitHub Issues**: [For technical questions](https://github.com/hoangtung386/Medical_reporting_agent/issues)
 
 ---
 
-## 🔄 Version History
+## Version History
 
-- **v1.0.0** (2026-01-26): Initial research release
+- **v1.1.0** (2026-04): Refactored project structure
+  - Split large modules into single-responsibility files
+  - Added test suite (pytest)
+  - PEP 8 compliance throughout
+  - Unified configuration with `base_config.yaml`
+  - Added `uv` support via `pyproject.toml`
+  - Integrated cross-attention into LLM forward pass
+  - Fixed critical bugs in training / evaluation scripts
+
+- **v1.0.0** (2026-01): Initial research release
   - Core segmentation-guided architecture
   - 3 baseline models for comparison
   - Evaluation pipeline with 6 metrics
@@ -400,4 +441,4 @@ For research inquiries:
 
 ---
 
-**Built with ❤️ for advancing medical AI research**
+**Built for advancing medical AI research**
