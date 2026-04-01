@@ -1,7 +1,5 @@
-"""
-Dataset collection for medical report generation.
-"""
+"""Dataset loaders for medical report generation."""
 
-from .abdomen_atlas import AbdomenAtlasDataset
+from .abdomen_atlas import AbdomenAtlasDataset, collate_fn
 
-__all__ = ['AbdomenAtlasDataset']
+__all__ = ["AbdomenAtlasDataset", "collate_fn"]
