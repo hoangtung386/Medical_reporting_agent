@@ -297,6 +297,8 @@ Medical_reporting_agent/
 |-- download_data.sh                # Dataset download helper
 |-- requirements.txt                # Pip requirements (flat)
 |-- pyproject.toml                  # Project metadata, uv / pip editable
+|-- REFACTORING_GUIDE.md            # Refactoring log & team handoff guide
+|-- .gitignore
 +-- README.md
 ```
 
