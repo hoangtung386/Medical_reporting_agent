@@ -4,7 +4,9 @@ set -euo pipefail
 # Script to download AbdomenAtlas3.0Mini dataset
 # Usage: bash download_data.sh
 
-# Where to put everything
+# Where to put everything.
+# This matches the default data_dir in configs/abdomen_atlas_config.yaml
+# and the AbdomenAtlasDataset constructor defaults.
 ROOT="data"
 IM_DIR="${ROOT}/image_only"
 MSK_DIR="${ROOT}/mask_only"

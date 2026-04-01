@@ -5,7 +5,9 @@ data:
   name: "AbdomenAtlas/AbdomenAtlas3.0Mini"
   split: "IID"
   report_type: "narrative"
-  data_dir: "dataset_Abdomen_Atlas_3.0_mini_small"
+  # Set to "data" if downloaded via download_data.sh,
+  # or to the extracted directory if using HuggingFace manually.
+  data_dir: "data"
 
   # Tumour-specific settings
   focus_small_tumors: true
