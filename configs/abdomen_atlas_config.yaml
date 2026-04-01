@@ -1,44 +1,38 @@
-# AbdomenAtlas Configuration for Tumor-Aware Report Generation
+# AbdomenAtlas configuration for tumour-aware report generation.
+# Extends base_config.yaml with dataset-specific and tumour settings.
 
-# Dataset settings
 data:
   name: "AbdomenAtlas/AbdomenAtlas3.0Mini"
-  split: "IID"  # Use IID split like RadGPT paper (OOD for external validation)
-  report_type: "narrative"  # Options: structured, narrative, enhanced
-  
-  # Tumor-specific settings (NOVEL)
-  focus_small_tumors: true  # Prioritize u ≤2cm for early detection
+  split: "IID"
+  report_type: "narrative"
+  # Set to "data" if downloaded via download_data.sh,
+  # or to the extracted directory if using HuggingFace manually.
+  data_dir: "data"
+
+  # Tumour-specific settings
+  focus_small_tumors: true
   tumor_types:
     - "liver_tumor"
     - "kidney_tumor"
     - "pancreas_tumor"
-  
-  # Data paths (download first with download_atlas_3.sh)
-  data_dir: "dataset_Abdomen_Atlas_3.0_mini_small"
-  train_path: "data/AbdomenAtlas3.0/train"
-  val_path: "data/AbdomenAtlas3.0/val"
-  test_path: "data/AbdomenAtlas3.0/test"
-  
+
   # Preprocessing
   crop_size: [96, 96, 96]
-  spacing: [1.5, 1.5, 1.5]  # mm
+  spacing: [1.5, 1.5, 1.5]
   normalize: true
   augmentation: true
 
-# Model settings
 model:
   segmentation:
     name: "swinunetr"
-    pretrained: "checkpoints/suprem_swinunetr.pth"  # SuPreM weights
+    pretrained: "checkpoints/suprem_swinunetr.pth"
     in_channels: 1
-    out_channels: 29  # 26 organs + 3 tumor types
+    out_channels: 29  # 26 organs + 3 tumour types
     img_size: [96, 96, 96]
     feature_size: 48
-    
-    # Tumor-specific (NOVEL)
-    tumor_channel_indices: [26, 27, 28]  # kidney, liver, pancreas tumors
-    separate_tumor_features: true  # Extract tumor features separately
-  
+    tumor_channel_indices: [26, 27, 28]
+    separate_tumor_features: true
+
   generation:
     name: "google/medgemma-2b"
     use_lora: true
@@ -47,13 +41,10 @@ model:
       lora_alpha: 32
       target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
       lora_dropout: 0.1
-    
-    # NOVEL components
-    tumor_aware_attention: true  # Separate attention for tumors
+    tumor_aware_attention: true
     measurement_conditioning: true
-    early_detection_weight: 2.0  # Weight loss for small tumors
-    
-# Training settings
+    early_detection_weight: 2.0
+
 training:
   num_epochs: 50
   batch_size: 4
@@ -61,64 +52,53 @@ training:
   weight_decay: 0.01
   gradient_accumulation_steps: 4
   fp16: true
-  
-  # Loss weights (NOVEL)
+  eval_every: 2
+  save_every: 5
+  early_stopping_patience: 10
+
   loss_weights:
     report_generation: 1.0
-    small_tumor_bonus: 0.5  # Extra weight for u ≤2cm
-    tumor_detection: 0.3  # Auxiliary tumor detection loss
-  
-  # Optimizer
+    small_tumor_bonus: 0.5
+    tumor_detection: 0.3
+
   optimizer: "AdamW"
   scheduler: "cosine"
   warmup_steps: 1000
-  
-  # Checkpointing
-  save_every: 5
-  eval_every: 2
-  early_stopping_patience: 10
 
-# Evaluation settings  
 evaluation:
-  # Text generation metrics
   metrics:
     - "BLEU-4"
     - "ROUGE-L"
     - "METEOR"
     - "Clinical F1"
-  
-  # Tumor-specific metrics (Compare with RadGPT)
   tumor_metrics:
     - "Tumor Detection Sensitivity"
     - "Tumor Detection Specificity"
-    - "Early Detection Rate"  # u ≤2cm
-    - "PPV"  # Positive Predictive Value
-  
-  # Stratified evaluation
+    - "Early Detection Rate"
+    - "PPV"
   stratify_by:
-    - "tumor_size"  # ≤2cm vs >2cm
-    - "tumor_location"  # liver vs kidney vs pancreas
-    - "report_type"  # structured vs narrative vs enhanced
+    - "tumor_size"
+    - "tumor_location"
+    - "report_type"
 
-# Experiment tracking
 logging:
   wandb_project: "tumor-aware-report-generation"
-  wandb_entity: null  # Your W&B username
+  wandb_entity: null
   log_dir: "logs"
   save_predictions: true
-  save_attention_maps: true  # For visualization
+  save_attention_maps: true
 
-# Hardware
 hardware:
   device: "cuda"
   mixed_precision: true
   num_workers: 4
   pin_memory: true
 
-# Comparison with baselines
+output_dir: "checkpoints"
+
 baselines:
-  - "RadGPT"  # From paper (tumor detection baseline)
-  - "LSTM"  # Text generation baseline
-  - "Transformer"  # Text generation baseline
-  - "Ours_no_tumor_attention"  # Ablation
-  - "Ours_no_small_tumor_focus"  # Ablation
+  - "RadGPT"
+  - "LSTM"
+  - "Transformer"
+  - "Ours_no_tumor_attention"
+  - "Ours_no_small_tumor_focus"

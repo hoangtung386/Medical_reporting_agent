@@ -1,0 +1,103 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "medical-report-generation"
+version = "1.1.0"
+description = "Vision-guided medical report generation via segmentation-aware attention"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Le Vu Hoang Tung", email = "levuhoangtung1542003@gmail.com"},
+]
+
+dependencies = [
+    # Core
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "monai>=1.3.0",
+    "transformers>=4.35.0",
+    "peft>=0.7.0",
+    # Data
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "nibabel>=5.0.0",
+    "pillow>=10.0.0",
+    "pandas>=2.0.0",
+    # NLP metrics
+    "nltk>=3.8.0",
+    "rouge-score>=0.1.2",
+    # RAG
+    "chromadb>=0.4.0",
+    # Experiment tracking
+    "wandb>=0.16.0",
+    "tensorboard>=2.15.0",
+    # Config
+    "pyyaml>=6.0",
+    "omegaconf>=2.3.0",
+    # Utilities
+    "tqdm>=4.65.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "ruff>=0.4.0",
+    "isort>=5.12.0",
+]
+# Multi-GPU / large-model training
+distributed = [
+    "accelerate>=0.25.0",
+    "deepspeed>=0.12.0",
+]
+
+# ===================== Tool configuration =====================
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
+ignore = ["E501"]
+
+# ===================== uv support =====================
+# To use with uv (https://docs.astral.sh/uv/):
+#
+#   uv venv                          # create virtual environment
+#   uv pip install -e ".[dev]"       # install project + dev tools
+#   uv run pytest                    # run tests
+#   uv run python main.py            # run demo
+#   uv run python -m experiments.train --config configs/abdomen_atlas_config.yaml
+#
+# Or use the lock-file workflow:
+#   uv lock
+#   uv sync --extra dev
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "ruff>=0.4.0",
+    "isort>=5.12.0",
+]

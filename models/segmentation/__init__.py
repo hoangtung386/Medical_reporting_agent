@@ -1,7 +1,5 @@
-"""
-Segmentation module initialization.
-"""
+"""Segmentation module."""
 
-from .swinunetr import SegmentationModel, SegmentationWrapper, ORGAN_LABELS
+from .swinunetr import ORGAN_LABELS, SegmentationModel, SegmentationWrapper
 
-__all__ = ['SegmentationModel', 'SegmentationWrapper', 'ORGAN_LABELS']
+__all__ = ["SegmentationModel", "SegmentationWrapper", "ORGAN_LABELS"]

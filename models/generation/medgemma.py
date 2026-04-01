@@ -1,131 +1,66 @@
-"""
-Segmentation-Guided Medical Report Generator.
+"""Segmentation-guided medical report generator.
 
-This is the CORE NOVELTY of the research:
-    - Uses 3D segmentation features to guide report generation
-    - Novel segmentation-aware cross-attention mechanism
-    - Attends to anatomical regions when generating descriptions
+Core novelty: uses 3D segmentation features to guide report generation
+through a cross-attention mechanism that grounds language in anatomy.
 
-Based on MedGemma-2B with custom attention layers.
+Based on MedGemma-2B with LoRA fine-tuning and custom attention layers.
 """
+
+from __future__ import annotations
+
+
+import logging
+import math
+import warnings
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
-from typing import Dict, Any, Optional, List
-import warnings
+
+from .attention import SegmentationAwareAttention
+
+logger = logging.getLogger(__name__)
 
 try:
     from transformers import (
-        AutoModelForCausalLM, 
+        AutoModelForCausalLM,
         AutoTokenizer,
-        GenerationConfig
     )
+
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
-    warnings.warn("Transformers not installed. Install with: pip install transformers")
-
-
-class SegmentationAwareAttention(nn.Module):
-    """
-    NOVEL COMPONENT: Cross-attention between LLM hidden states and segmentation features.
-    
-    This allows the model to "look at" specific anatomical regions when generating
-    descriptions (e.g., attending to liver when writing "liver: unremarkable").
-    
-    This is the key innovation over baseline report generators.
-    """
-    
-    def __init__(
-        self,
-        llm_hidden_size: int = 2048,
-        seg_feature_size: int = 768,
-        num_heads: int = 8,
-        dropout: float = 0.1
-    ):
-        super().__init__()
-        
-        self.num_heads = num_heads
-        self.head_dim = llm_hidden_size // num_heads
-        
-        # Project segmentation features to LLM dimension
-        self.seg_projector = nn.Linear(seg_feature_size, llm_hidden_size)
-        
-        # Multi-head cross-attention
-        self.cross_attn = nn.MultiheadAttention(
-            embed_dim=llm_hidden_size,
-            num_heads=num_heads,
-            dropout=dropout,
-            batch_first=True
-        )
-        
-        # Layer normalization
-        self.layer_norm = nn.LayerNorm(llm_hidden_size)
-        
-        # Feed-forward
-        self.ffn = nn.Sequential(
-            nn.Linear(llm_hidden_size, llm_hidden_size * 4),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(llm_hidden_size * 4, llm_hidden_size),
-            nn.Dropout(dropout)
-        )
-        self.ffn_norm = nn.LayerNorm(llm_hidden_size)
-        
-    def forward(
-        self, 
-        llm_hidden_states: torch.Tensor,
-        seg_features: torch.Tensor,
-        return_attention_weights: bool = False
-    ):
-        """
-        Args:
-            llm_hidden_states: [batch, seq_len, llm_hidden_size]
-            seg_features: [batch, num_regions, seg_feature_size]
-            return_attention_weights: Return attention map for visualization
-        
-        Returns:
-            conditioned_states: [batch, seq_len, llm_hidden_size]
-            attention_weights: [batch, num_heads, seq_len, num_regions] (optional)
-        """
-        # Project segmentation features to LLM space
-        seg_projected = self.seg_projector(seg_features)  # [B, num_regions, llm_hidden]
-        
-        # Cross-attention: Query from LLM, Key/Value from segmentation
-        attn_output, attn_weights = self.cross_attn(
-            query=llm_hidden_states,
-            key=seg_projected,
-            value=seg_projected,
-            need_weights=return_attention_weights
-        )
-        
-        # Residual connection + norm
-        hidden_states = self.layer_norm(llm_hidden_states + attn_output)
-        
-        # Feed-forward network
-        ffn_output = self.ffn(hidden_states)
-        output = self.ffn_norm(hidden_states + ffn_output)
-        
-        if return_attention_weights:
-            return output, attn_weights
-        return output
+    logger.warning(
+        "transformers not installed. Running in mock mode. "
+        "Install with: pip install transformers"
+    )
 
 
 class SegmentationGuidedReportGenerator(nn.Module):
-    """
-    Medical Report Generator guided by 3D segmentation features.
-    
+    """Medical report generator guided by 3D segmentation features.
+
     Architecture:
         1. Base LLM: MedGemma-2B (medical domain pre-trained)
-        2. Segmentation Feature Encoder: Projects 3D features to sequence
-        3. Cross-Attention Layers: Fuse segmentation info into generation
-        4. Optional: RAG retrieval for clinical guidelines
-    
-    Training:
-        - Phase 1: Train with frozen LLM, only train projection layers
+        2. Segmentation feature encoder: projects 3D features to sequence
+        3. Cross-attention layers: fuse segmentation info into generation
+        4. Optional RAG retrieval for clinical guidelines
+
+    Training phases:
+        - Phase 1: Frozen LLM, train projection layers only
         - Phase 2: LoRA fine-tuning of LLM layers
+
+    Args:
+        model_name: HuggingFace model identifier.
+        seg_feature_size: Dimension of segmentation encoder features.
+        use_lora: Whether to apply LoRA adapters.
+        lora_r: LoRA rank.
+        lora_alpha: LoRA scaling factor.
+        num_cross_attn_layers: Number of cross-attention layers.
+        pool_size: Spatial pooling target for segmentation features.
+        num_seg_tokens: Number of tokens in the segmentation sequence.
+        device: Target device.
     """
-    
+
     def __init__(
         self,
         model_name: str = "google/medgemma-2b",
@@ -133,331 +68,281 @@ class SegmentationGuidedReportGenerator(nn.Module):
         use_lora: bool = True,
         lora_r: int = 16,
         lora_alpha: int = 32,
-        device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
-    ):
+        num_cross_attn_layers: int = 3,
+        pool_size: tuple[int, int, int] = (4, 4, 4),
+        num_seg_tokens: int = 8,
+        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+    ) -> None:
         super().__init__()
-        
+
         self.device = device
         self.seg_feature_size = seg_feature_size
-        
+        self.pool_size = pool_size
+        self.num_seg_tokens = num_seg_tokens
+        pool_elements = math.prod(pool_size)
+
         if not TRANSFORMERS_AVAILABLE:
-            print("WARNING: Running in mock mode. Install transformers for real inference.")
+            logger.warning("Running in mock mode (transformers unavailable).")
             self.llm = None
             self.tokenizer = None
             self.llm_hidden_size = 2048
         else:
-            # Load base model
-            print(f"Loading {model_name}...")
+            logger.info("Loading %s...", model_name)
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             self.llm = AutoModelForCausalLM.from_pretrained(
                 model_name,
-                torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
-                device_map=device
+                torch_dtype=(
+                    torch.float16 if device == "cuda" else torch.float32
+                ),
+                device_map=device,
             )
-            
-            # Get hidden size
             self.llm_hidden_size = self.llm.config.hidden_size
-            
-            # Apply LoRA for efficient fine-tuning
+
             if use_lora:
                 self._apply_lora(lora_r, lora_alpha)
-            
-            # Ensure padding token
+
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
-        
-        # Segmentation feature processing
-        self.seg_feature_pooling = nn.AdaptiveAvgPool3d((4, 4, 4))  # Reduce spatial dims
+
+        # --- Segmentation feature processing ---
+        self.seg_feature_pooling = nn.AdaptiveAvgPool3d(pool_size)
         self.seg_feature_flatten = nn.Flatten()
-        self.seg_to_sequence = nn.Linear(seg_feature_size * 64, self.llm_hidden_size * 8)
-        
-        # Cross-attention layers (NOVEL COMPONENT)
-        self.cross_attention_layers = nn.ModuleList([
-            SegmentationAwareAttention(
-                llm_hidden_size=self.llm_hidden_size,
-                seg_feature_size=self.llm_hidden_size  # After projection
-            )
-            for _ in range(3)  # Insert 3 cross-attention layers
-        ])
-        
-        # Measurement conditioning (from Agent 6 calculations)
-        self.measurement_encoder = nn.Sequential(
-            nn.Linear(25, 128),  # 25 organ volumes
-            nn.ReLU(),
-            nn.Linear(128, self.llm_hidden_size)
+        self.seg_to_sequence = nn.Linear(
+            seg_feature_size * pool_elements,
+            self.llm_hidden_size * num_seg_tokens,
         )
-    
-    def _apply_lora(self, r: int, alpha: int):
-        """Apply LoRA for parameter-efficient fine-tuning"""
+
+        # --- Cross-attention layers (novel component) ---
+        self.cross_attention_layers = nn.ModuleList(
+            [
+                SegmentationAwareAttention(
+                    llm_hidden_size=self.llm_hidden_size,
+                    seg_feature_size=self.llm_hidden_size,
+                )
+                for _ in range(num_cross_attn_layers)
+            ]
+        )
+
+        # --- Measurement conditioning ---
+        self.measurement_encoder = nn.Sequential(
+            nn.Linear(25, 128),
+            nn.ReLU(),
+            nn.Linear(128, self.llm_hidden_size),
+        )
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _apply_lora(self, r: int, alpha: int) -> None:
+        """Apply LoRA for parameter-efficient fine-tuning."""
         try:
             from peft import LoraConfig, get_peft_model
-            
+
             lora_config = LoraConfig(
                 r=r,
                 lora_alpha=alpha,
                 target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
                 lora_dropout=0.1,
                 bias="none",
-                task_type="CAUSAL_LM"
+                task_type="CAUSAL_LM",
             )
-            
             self.llm = get_peft_model(self.llm, lora_config)
-            print(f"Applied LoRA with r={r}, alpha={alpha}")
-            print(f"Trainable parameters: {self.llm.print_trainable_parameters()}")
-            
+            logger.info("Applied LoRA (r=%d, alpha=%d)", r, alpha)
         except ImportError:
-            warnings.warn("PEFT not installed. Running without LoRA. Install with: pip install peft")
-    
+            logger.warning(
+                "peft not installed. Running without LoRA. "
+                "Install with: pip install peft"
+            )
+
+    # ------------------------------------------------------------------
+    # Feature encoding
+    # ------------------------------------------------------------------
+
     def encode_segmentation_features(
-        self, 
-        seg_features: torch.Tensor
+        self,
+        seg_features: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Convert 3D segmentation features to sequence representation.
-        
+        """Convert 3D segmentation features to a token sequence.
+
         Args:
-            seg_features: [batch, channels, D, H, W]
-        
+            seg_features: Shape ``[batch, channels, D, H, W]``.
+
         Returns:
-            feature_sequence: [batch, seq_len, hidden_size]
+            Feature sequence of shape ``[batch, num_seg_tokens, hidden]``.
         """
-        # Spatial pooling
-        pooled = self.seg_feature_pooling(seg_features)  # [B, C, 4, 4, 4]
-        flattened = self.seg_feature_flatten(pooled)  # [B, C*64]
-        
-        # Project to sequence
-        seq = self.seg_to_sequence(flattened)  # [B, hidden*8]
-        seq = seq.reshape(seq.size(0), 8, self.llm_hidden_size)  # [B, 8, hidden]
-        
-        return seq
-    
+        pooled = self.seg_feature_pooling(seg_features)
+        flattened = self.seg_feature_flatten(pooled)
+        seq = self.seg_to_sequence(flattened)
+        return seq.reshape(
+            seq.size(0), self.num_seg_tokens, self.llm_hidden_size
+        )
+
     def encode_measurements(
         self,
-        measurements: Dict[str, Any]
+        measurements: Dict[str, Any],
     ) -> torch.Tensor:
-        """
-        Encode quantitative measurements as continuous embeddings.
-        
+        """Encode quantitative measurements as continuous embeddings.
+
         Args:
-            measurements: Dict with 'volumes_mm3' for each organ
-        
+            measurements: Dict with ``volumes_mm3`` for each organ.
+
         Returns:
-            measurement_embedding: [batch, hidden_size]
+            Measurement embedding of shape ``[1, hidden_size]``.
         """
-        # Extract volumes for 25 organs (0 if not detected)
-        volumes = measurements.get('volumes_mm3', {})
+        volumes = measurements.get("volumes_mm3", {})
         volume_tensor = torch.zeros(25, device=self.device)
-        
+
         for organ_id, volume in volumes.items():
-            if organ_id < 25:
+            if isinstance(organ_id, int) and organ_id < 25:
                 volume_tensor[organ_id] = volume
-        
-        # Normalize (log scale)
+
+        # Log-scale normalization
         volume_tensor = torch.log1p(volume_tensor)
-        
-        # Encode
-        embedding = self.measurement_encoder(volume_tensor.unsqueeze(0))
-        
-        return embedding
-    
+        return self.measurement_encoder(volume_tensor.unsqueeze(0))
+
+    # ------------------------------------------------------------------
+    # Forward / generation
+    # ------------------------------------------------------------------
+
     def forward(
         self,
         seg_features: torch.Tensor,
         measurements: Dict[str, Any],
         prompt: Optional[str] = None,
         max_length: int = 512,
-        return_attention: bool = False
+        return_attention: bool = False,
     ) -> Dict[str, Any]:
-        """
-        Generate medical report conditioned on segmentation.
-        
+        """Generate a medical report conditioned on segmentation.
+
         Args:
-            seg_features: Encoder features from SegmentationModel
-            measurements: Volume/bbox measurements (from utils.measurements)
-            prompt: Optional text prompt (e.g., "Clinical indication: ...")
-            max_length: Maximum report length
-            return_attention: Return attention weights for visualization
-        
+            seg_features: Encoder features from the segmentation model.
+            measurements: Volume / bounding-box measurements.
+            prompt: Optional text prompt.
+            max_length: Maximum report length in tokens.
+            return_attention: Whether to return attention weights.
+
         Returns:
-            Dictionary with generated report and optional attention maps
+            Dict with ``report`` string and optional ``attention_maps``.
         """
-        
         if self.llm is None:
-            # Mock generation for testing
             return {
-                'report': "MOCK REPORT: Liver: unremarkable. Lungs: clear. No acute findings.",
-                'attention_maps': None
+                "report": (
+                    "MOCK REPORT: Liver unremarkable. "
+                    "Lungs clear. No acute findings."
+                ),
+                "attention_maps": None,
             }
-        
-        # 1. Encode segmentation features to sequence
+
+        # 1. Encode segmentation features
         seg_sequence = self.encode_segmentation_features(seg_features)
-        
+
         # 2. Encode measurements
         measurement_emb = self.encode_measurements(measurements)
-        
+
         # 3. Prepare text prompt
         if prompt is None:
             prompt = "Generate a radiology report based on the CT scan:\n"
-        
+
         inputs = self.tokenizer(
-            prompt, 
-            return_tensors="pt", 
-            padding=True
+            prompt, return_tensors="pt", padding=True
         ).to(self.device)
-        
-        # 4. Get LLM embeddings
-        input_embeds = self.llm.get_input_embeddings()(inputs['input_ids'])
-        
-        # 5. Prepend segmentation and measurement embeddings
-        # [seg_sequence | measurement | text_embeddings]
-        combined_embeds = torch.cat([
-            seg_sequence,
-            measurement_emb.unsqueeze(1),
-            input_embeds
-        ], dim=1)
-        
-        # 6. Generate with cross-attention to segmentation features
-        # Note: This is a simplified version. In practice, you'd need to
-        # modify the LLM forward pass to insert cross-attention layers.
-        # For now, we use the segmentation as prefix embeddings.
-        
-        outputs = self.llm.generate(
-            inputs_embeds=combined_embeds,
-            max_length=max_length,
-            num_beams=4,
-            early_stopping=True,
-            temperature=0.7,
-            do_sample=True,
-            top_p=0.9,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=self.tokenizer.eos_token_id
+
+        # 4. Get LLM embeddings for text tokens
+        input_embeds = self.llm.get_input_embeddings()(inputs["input_ids"])
+
+        # 5. Prepend segmentation + measurement embeddings
+        combined_embeds = torch.cat(
+            [seg_sequence, measurement_emb.unsqueeze(1), input_embeds],
+            dim=1,
         )
-        
-        # Decode report
-        report = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
+
+        # 6. Custom generation loop with cross-attention at each step.
+        #    This is the core novelty: at every decoding step the LLM
+        #    hidden states are conditioned on segmentation features via
+        #    the cross-attention layers before predicting the next token.
+        generated_ids: list[int] = []
+        attention_maps: list[torch.Tensor] = []
+        current_embeds = combined_embeds
+
+        for _ in range(max_length):
+            llm_outputs = self.llm(
+                inputs_embeds=current_embeds,
+                output_hidden_states=True,
+            )
+            hidden_states = llm_outputs.hidden_states[-1]
+
+            # Apply cross-attention layers (novel component)
+            for cross_attn in self.cross_attention_layers:
+                if return_attention:
+                    hidden_states, attn_w = cross_attn(
+                        hidden_states,
+                        seg_sequence,
+                        return_attention_weights=True,
+                    )
+                    attention_maps.append(attn_w)
+                else:
+                    hidden_states = cross_attn(
+                        hidden_states, seg_sequence
+                    )
+
+            # Predict next token from cross-attention-conditioned states
+            next_logits = self.llm.lm_head(hidden_states[:, -1:, :])
+            next_id = int(torch.argmax(next_logits, dim=-1).item())
+
+            if next_id == self.tokenizer.eos_token_id:
+                break
+
+            generated_ids.append(next_id)
+
+            # Prepare embedding for the next step
+            next_emb = self.llm.get_input_embeddings()(
+                torch.tensor([[next_id]], device=self.device)
+            )
+            current_embeds = next_emb  # only feed the new token
+
+        report = self.tokenizer.decode(
+            generated_ids, skip_special_tokens=True
+        )
+
         return {
-            'report': report,
-            'attention_maps': None  # TODO: Extract from cross-attention layers
+            "report": report,
+            "attention_maps": attention_maps if return_attention else None,
         }
-    
+
     def generate_report(
         self,
         seg_output: Dict[str, Any],
         clinical_indication: Optional[str] = None,
-        rag_context: Optional[str] = None
+        rag_context: Optional[str] = None,
     ) -> str:
-        """
-        High-level interface for report generation.
-        
+        """High-level interface for report generation.
+
         Args:
-            seg_output: Output from SegmentationModel.forward()
-            clinical_indication: Optional clinical context
-            rag_context: Optional retrieved guidelines (from utils.rag)
-        
+            seg_output: Output from ``SegmentationModel.forward()``.
+            clinical_indication: Optional clinical context.
+            rag_context: Optional retrieved guidelines.
+
         Returns:
-            Generated radiology report as string
+            Generated radiology report text.
         """
-        # Extract features and measurements
-        seg_features = seg_output['features']['bottleneck']
-        measurements = seg_output.get('measurements', {})
-        
+        seg_features = seg_output["features"]["bottleneck"]
+        measurements = seg_output.get("measurements", {})
+
         # Build prompt
-        prompt_parts = []
+        prompt_parts: list[str] = []
         if clinical_indication:
-            prompt_parts.append(f"Clinical indication: {clinical_indication}")
+            prompt_parts.append(
+                f"Clinical indication: {clinical_indication}"
+            )
         if rag_context:
             prompt_parts.append(f"Relevant guidelines: {rag_context}")
-        prompt_parts.append("\\nGenerate radiology report:\\n")
-        
-        prompt = "\\n".join(prompt_parts)
-        
-        # Generate
+        prompt_parts.append("\nGenerate radiology report:\n")
+        prompt = "\n".join(prompt_parts)
+
         output = self.forward(
             seg_features=seg_features,
             measurements=measurements,
-            prompt=prompt
+            prompt=prompt,
         )
-        
-        return output['report']
-
-
-class ReportGeneratorTrainer:
-    """
-    Training utilities for the report generator.
-    """
-    
-    def __init__(
-        self,
-        model: SegmentationGuidedReportGenerator,
-        learning_rate: float = 1e-4
-    ):
-        self.model = model
-        self.optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=learning_rate
-        )
-    
-    def compute_loss(
-        self,
-        seg_features: torch.Tensor,
-        measurements: Dict[str, Any],
-        target_report: str
-    ) -> torch.Tensor:
-        """
-        Compute language modeling loss.
-        
-        Args:
-            seg_features: Segmentation encoder features
-            measurements: Quantitative measurements
-            target_report: Ground truth report text
-        
-        Returns:
-            loss: Cross-entropy loss
-        """
-        # Tokenize target
-        # Add labels for causal language modeling
-        inputs = self.model.tokenizer(
-            target_report,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=512,
-            add_special_tokens=True
-        ).to(self.model.device)
-        
-        # Get embeddings for text
-        text_embeds = self.model.llm.get_input_embeddings()(inputs['input_ids'])
-        
-        # Encode features
-        seg_sequence = self.model.encode_segmentation_features(seg_features)
-        measurement_emb = self.model.encode_measurements(measurements)
-        
-        # Combine embeddings: [Seg | Meas | Text]
-        # Dimensions: [B, 8, H] | [B, 1, H] | [B, L, H]
-        measurement_emb = measurement_emb.unsqueeze(1)
-        
-        combined_embeds = torch.cat([
-            seg_sequence, 
-            measurement_emb, 
-            text_embeds
-        ], dim=1)
-        
-        # Create labels
-        # Classification loss only on text part
-        # -100 is ignored by CrossEntropyLoss
-        batch_size = combined_embeds.shape[0]
-        prefix_len = seg_sequence.shape[1] + measurement_emb.shape[1]
-        
-        text_labels = inputs['input_ids']
-        prefix_labels = torch.full((batch_size, prefix_len), -100, device=self.model.device)
-        
-        labels = torch.cat([prefix_labels, text_labels], dim=1)
-        
-        # Forward pass
-        outputs = self.model.llm(
-            inputs_embeds=combined_embeds,
-            labels=labels
-        )
-        
-        return outputs.loss
+        return output["report"]
