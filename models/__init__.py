@@ -1,11 +1,15 @@
-"""
-Core models for medical report generation.
-"""
+"""Core models for medical report generation."""
 
-from .segmentation.swinunetr import SegmentationModel
 from .generation.medgemma import SegmentationGuidedReportGenerator
+from .segmentation.swinunetr import (
+    ORGAN_LABELS,
+    SegmentationModel,
+    SegmentationWrapper,
+)
 
 __all__ = [
-    'SegmentationModel',
-    'SegmentationGuidedReportGenerator'
+    "SegmentationModel",
+    "SegmentationWrapper",
+    "ORGAN_LABELS",
+    "SegmentationGuidedReportGenerator",
 ]
