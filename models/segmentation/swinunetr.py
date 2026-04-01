@@ -4,6 +4,9 @@ Outputs both segmentation masks and multi-scale encoder features
 for downstream report generation.
 """
 
+from __future__ import annotations
+
+
 import logging
 from typing import Any, Dict, Optional, Tuple
 

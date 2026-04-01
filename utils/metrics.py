@@ -4,6 +4,9 @@ Implements standard NLG metrics (BLEU, ROUGE, METEOR) and a
 domain-specific clinical-accuracy metric.
 """
 
+from __future__ import annotations
+
+
 import logging
 import warnings
 from typing import Any, Dict, List, Optional

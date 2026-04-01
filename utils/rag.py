@@ -4,6 +4,9 @@ Optional module for retrieving clinical guidelines and similar
 historical cases. Used for ablation studies.
 """
 
+from __future__ import annotations
+
+
 import logging
 from typing import Any, Dict, List, Optional
 

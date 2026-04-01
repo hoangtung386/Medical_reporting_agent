@@ -7,6 +7,9 @@ Usage::
     python -m experiments.train --config configs/abdomen_atlas_config.yaml
 """
 
+from __future__ import annotations
+
+
 import argparse
 import logging
 from pathlib import Path

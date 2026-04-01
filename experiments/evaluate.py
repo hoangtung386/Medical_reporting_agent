@@ -7,6 +7,9 @@ Usage::
     python -m experiments.evaluate --model_path checkpoints/best_model.pth
 """
 
+from __future__ import annotations
+
+
 import argparse
 import json
 import logging
