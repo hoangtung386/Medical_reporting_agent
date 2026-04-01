@@ -1,15 +1,11 @@
-"""
-Report generation module initialization.
-"""
+"""Report generation module."""
 
-from .medgemma import (
-    SegmentationGuidedReportGenerator,
-    SegmentationAwareAttention,
-    ReportGeneratorTrainer
-)
+from .attention import SegmentationAwareAttention
+from .medgemma import SegmentationGuidedReportGenerator
+from .trainer import ReportGeneratorTrainer
 
 __all__ = [
-    'SegmentationGuidedReportGenerator',
-    'SegmentationAwareAttention', 
-    'ReportGeneratorTrainer'
+    "SegmentationAwareAttention",
+    "SegmentationGuidedReportGenerator",
+    "ReportGeneratorTrainer",
 ]
