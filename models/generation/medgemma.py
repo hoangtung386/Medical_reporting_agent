@@ -6,6 +6,9 @@ through a cross-attention mechanism that grounds language in anatomy.
 Based on MedGemma-2B with LoRA fine-tuning and custom attention layers.
 """
 
+from __future__ import annotations
+
+
 import logging
 import math
 import warnings
@@ -254,39 +257,52 @@ class SegmentationGuidedReportGenerator(nn.Module):
             dim=1,
         )
 
-        # 6. Forward through LLM to get hidden states
-        llm_outputs = self.llm(
-            inputs_embeds=combined_embeds,
-            output_hidden_states=True,
-        )
-        hidden_states = llm_outputs.hidden_states[-1]
+        # 6. Custom generation loop with cross-attention at each step.
+        #    This is the core novelty: at every decoding step the LLM
+        #    hidden states are conditioned on segmentation features via
+        #    the cross-attention layers before predicting the next token.
+        generated_ids: list[int] = []
+        attention_maps: list[torch.Tensor] = []
+        current_embeds = combined_embeds
 
-        # 7. Apply cross-attention layers (novel component)
-        attention_maps = []
-        for cross_attn in self.cross_attention_layers:
-            if return_attention:
-                hidden_states, attn_w = cross_attn(
-                    hidden_states, seg_sequence, return_attention_weights=True
-                )
-                attention_maps.append(attn_w)
-            else:
-                hidden_states = cross_attn(hidden_states, seg_sequence)
+        for _ in range(max_length):
+            llm_outputs = self.llm(
+                inputs_embeds=current_embeds,
+                output_hidden_states=True,
+            )
+            hidden_states = llm_outputs.hidden_states[-1]
 
-        # 8. Generate from conditioned hidden states
-        outputs = self.llm.generate(
-            inputs_embeds=combined_embeds,
-            max_length=max_length,
-            num_beams=4,
-            early_stopping=True,
-            temperature=0.7,
-            do_sample=True,
-            top_p=0.9,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=self.tokenizer.eos_token_id,
-        )
+            # Apply cross-attention layers (novel component)
+            for cross_attn in self.cross_attention_layers:
+                if return_attention:
+                    hidden_states, attn_w = cross_attn(
+                        hidden_states,
+                        seg_sequence,
+                        return_attention_weights=True,
+                    )
+                    attention_maps.append(attn_w)
+                else:
+                    hidden_states = cross_attn(
+                        hidden_states, seg_sequence
+                    )
+
+            # Predict next token from cross-attention-conditioned states
+            next_logits = self.llm.lm_head(hidden_states[:, -1:, :])
+            next_id = int(torch.argmax(next_logits, dim=-1).item())
+
+            if next_id == self.tokenizer.eos_token_id:
+                break
+
+            generated_ids.append(next_id)
+
+            # Prepare embedding for the next step
+            next_emb = self.llm.get_input_embeddings()(
+                torch.tensor([[next_id]], device=self.device)
+            )
+            current_embeds = next_emb  # only feed the new token
 
         report = self.tokenizer.decode(
-            outputs[0], skip_special_tokens=True
+            generated_ids, skip_special_tokens=True
         )
 
         return {
