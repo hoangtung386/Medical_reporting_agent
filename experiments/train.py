@@ -1,242 +1,331 @@
-"""
-Training script for medical report generation.
+"""Training script for medical report generation.
 
 Trains the segmentation-guided report generator on CT-report pairs.
 
-Usage:
-    python experiments/train.py --config configs/train_config.yaml
+Usage::
+
+    python -m experiments.train --config configs/abdomen_atlas_config.yaml
 """
 
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
 import argparse
+import logging
 from pathlib import Path
-import yaml
+from typing import Any, Dict, Optional
+
+import numpy as np
+import torch
+from torch.utils.data import DataLoader
 from tqdm import tqdm
-import wandb
+import yaml
 
-# Models
-from models.segmentation import SegmentationModel
-from models.generation import SegmentationGuidedReportGenerator
+from data.datasets.abdomen_atlas import AbdomenAtlasDataset, collate_fn
 from models.baselines import BASELINES
-
-# Utils
+from models.generation.medgemma import SegmentationGuidedReportGenerator
+from models.generation.trainer import ReportGeneratorTrainer
+from models.segmentation import SegmentationModel
 from utils.metrics import compute_all_metrics
 
+logger = logging.getLogger(__name__)
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Train report generator")
-    parser.add_argument('--config', type=str, default='configs/train_config.yaml')
-    parser.add_argument('--baseline', type=str, choices=['lstm', 'transformer', 'simple_cnn_lstm', None], default=None)
-    parser.add_argument('--resume', type=str, default=None, help='Resume from checkpoint')
-    parser.add_argument('--wandb', action='store_true', help='Use Weights & Biases logging')
+try:
+    import wandb
+
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
+
+# ------------------------------------------------------------------
+# Config handling
+# ------------------------------------------------------------------
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Train report generator"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/abdomen_atlas_config.yaml",
+    )
+    parser.add_argument(
+        "--baseline",
+        type=str,
+        choices=list(BASELINES.keys()),
+        default=None,
+    )
+    parser.add_argument(
+        "--resume", type=str, default=None, help="Resume from checkpoint"
+    )
+    parser.add_argument(
+        "--wandb", action="store_true", help="Enable W&B logging"
+    )
     return parser.parse_args()
 
 
-def load_config(config_path):
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
+def load_config(config_path: str) -> Dict[str, Any]:
+    """Load and normalise a YAML config file.
+
+    Handles both flat configs (``train_config.yaml``) and nested ones
+    (``abdomen_atlas_config.yaml``) by ensuring a ``training`` section
+    always exists.
+    """
+    with open(config_path, "r") as fh:
+        config: Dict[str, Any] = yaml.safe_load(fh)
+
+    # Normalise: ensure training section exists
+    if "training" not in config:
+        config["training"] = {}
+
+    _defaults = {
+        "num_epochs": 50,
+        "learning_rate": 1e-4,
+        "batch_size": 4,
+        "weight_decay": 0.01,
+    }
+    for key, default in _defaults.items():
+        if key not in config["training"]:
+            # Try root-level key first, then fallback to default
+            config["training"][key] = config.pop(key, default)
+
+    # eval_every / save_every
+    for key in ("eval_every", "save_every"):
+        if key not in config["training"]:
+            config["training"][key] = config.pop(key, 2)
+
+    # output_dir
+    if "output_dir" not in config:
+        config["output_dir"] = "checkpoints"
+
     return config
 
 
+# ------------------------------------------------------------------
+# Training & evaluation loops
+# ------------------------------------------------------------------
+
+
 def train_epoch(
-    model,
-    seg_model,
-    train_loader,
-    optimizer,
-    device,
-    epoch,
-    trainer=None
-):
-    """
-    Train for one epoch.
-    """
+    model: torch.nn.Module,
+    seg_model: Optional[SegmentationModel],
+    train_loader: DataLoader,
+    trainer: ReportGeneratorTrainer,
+    device: torch.device,
+    epoch: int,
+) -> float:
+    """Train for one epoch and return average loss."""
     model.train()
-    seg_model.eval()  # Freeze segmentation model
-    
+    if seg_model is not None:
+        seg_model.eval()
+
     total_loss = 0.0
-    progress_bar = tqdm(train_loader, desc=f"Epoch {epoch}")
-    
-    for batch_idx, batch in enumerate(progress_bar):
-        ct_volume = batch['ct_volume'].to(device)
-        target_report = batch['report']
-        
-        # Get segmentation features (no grad)
+    progress = tqdm(train_loader, desc=f"Epoch {epoch}")
+
+    for batch in progress:
+        ct_volume = batch["ct_volume"].to(device)
+        target_report = batch["report"]
+
+        # Segmentation features (frozen)
         with torch.no_grad():
             seg_output = seg_model(ct_volume, return_features=True)
-        
-        # Forward pass through report generator
-        # We need a Trainer instance or call the loss method directly
-        # For simplicity, we assume 'model' here is the trainer or we create one
-        # Ideally, we should refactor main() to pass a trainer, but let's just 
-        # use the method if we can, or instantiate the helper class.
-        
-        # NOTE: In main(), we probably want to wrap 'model' in ReportGeneratorTrainer
-        # But for minimal changes, let's just do:
-        
-        # Get features
-        seg_features = seg_output['features']['bottleneck']
-        measurements = seg_output.get('measurements', {})
-        
-        # Compute loss
-        # We need to access the trainer's compute_loss method. 
-        # Since we modified main() to pass just 'model' (which is the nn.Module), 
-        # let's create a temporary helper or assume we change main() too.
-        # Let's change main() to create the trainer.
-        
-        loss = trainer.compute_loss(seg_features, measurements, target_report)
-        
-        # Backward
-        optimizer.zero_grad()
+
+        seg_features = seg_output["features"]["bottleneck"]
+        measurements = seg_output.get("measurements", {})
+
+        # Language-modelling loss (first report in batch)
+        loss = trainer.compute_loss(
+            seg_features, measurements, target_report[0]
+        )
+
+        trainer.optimizer.zero_grad()
         loss.backward()
-        optimizer.step()
-        
-        # Update metrics
+        trainer.optimizer.step()
+
         total_loss += loss.item()
-        progress_bar.set_postfix({'loss': loss.item()})
-    
-    avg_loss = total_loss / len(train_loader)
-    return avg_loss
+        progress.set_postfix({"loss": f"{loss.item():.4f}"})
+
+    return total_loss / max(len(train_loader), 1)
 
 
 def evaluate(
-    model,
-    seg_model,
-    val_loader,
-    device
-):
-    """
-    Evaluate model on validation set.
-    """
+    model: torch.nn.Module,
+    seg_model: Optional[SegmentationModel],
+    val_loader: DataLoader,
+    device: torch.device,
+) -> Dict[str, float]:
+    """Evaluate model on validation set."""
     model.eval()
-    seg_model.eval()
-    
-    all_predictions = []
-    all_references = []
-    
+    if seg_model is not None:
+        seg_model.eval()
+
+    all_predictions: list[str] = []
+    all_references: list[str] = []
+
     with torch.no_grad():
         for batch in tqdm(val_loader, desc="Evaluating"):
-            ct_volume = batch['ct_volume'].to(device)
-            reference_reports = batch['report']
-            
-            # Get segmentation
+            ct_volume = batch["ct_volume"].to(device)
+            reference_reports = batch["report"]
+
             seg_output = seg_model(ct_volume, return_features=True)
-            
-            # Generate report
             generated = model.generate_report(seg_output)
-            
+
             all_predictions.append(generated)
-            all_references.append(reference_reports)
-    
-    # Compute metrics
-    metrics = compute_all_metrics(all_references, all_predictions)
-    
-    return metrics
+            all_references.extend(reference_reports)
+
+    # Per-sample metrics, then average
+    per_sample = [
+        compute_all_metrics([ref], pred, detailed=True)
+        for ref, pred in zip(all_references, all_predictions)
+    ]
+
+    if not per_sample:
+        return {}
+
+    metric_names = per_sample[0].keys()
+    return {
+        k: float(np.mean([m[k] for m in per_sample]))
+        for k in metric_names
+    }
 
 
-def main():
+# ------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------
+
+
+def main() -> None:
+    """Entry-point for training."""
     args = parse_args()
     config = load_config(args.config)
-    
-    # Initialize wandb
-    if args.wandb:
-        wandb.init(project="medical-report-generation", config=config)
-    
-    # Device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
-    
-    # Load data
-    from data.datasets.loader import AbdomenAtlasDataset
-    
-    print(f"Loading dataset from {config['data']['data_dir']}...")
+
+    if args.wandb and WANDB_AVAILABLE:
+        wandb.init(
+            project=config.get("wandb_project", "medical-report-gen"),
+            config=config,
+        )
+
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
+    logger.info("Using device: %s", device)
+
+    # --- Data ---
+    data_cfg = config.get("data", {})
+    data_dir = data_cfg.get(
+        "data_dir", "dataset_Abdomen_Atlas_3.0_mini_small"
+    )
+    csv_path = f"{data_dir}/data/AbdomenAtlas3.0MiniWithMeta.csv"
+
+    logger.info("Loading dataset from %s ...", data_dir)
     train_dataset = AbdomenAtlasDataset(
-        root_dir=config['data']['data_dir'],
-        split='train'
+        csv_path=csv_path,
+        data_dir=f"{data_dir}/data",
+        report_type=data_cfg.get("report_type", "narrative"),
+        load_images=True,
     )
     val_dataset = AbdomenAtlasDataset(
-        root_dir=config['data']['data_dir'],
-        split='val'
+        csv_path=csv_path,
+        data_dir=f"{data_dir}/data",
+        report_type=data_cfg.get("report_type", "narrative"),
+        load_images=True,
     )
-    
+
+    batch_size = config["training"]["batch_size"]
     train_loader = DataLoader(
-        train_dataset, 
-        batch_size=config['training']['batch_size'], 
+        train_dataset,
+        batch_size=batch_size,
         shuffle=True,
-        num_workers=0 # Windows typically needs 0 for simple scripts
+        num_workers=0,
+        collate_fn=collate_fn,
     )
     val_loader = DataLoader(
-        val_dataset, 
-        batch_size=config['training']['batch_size'],
+        val_dataset,
+        batch_size=batch_size,
         shuffle=False,
-        num_workers=0
+        num_workers=0,
+        collate_fn=collate_fn,
     )
-    
-    # Load models
+
+    # --- Models ---
     if args.baseline:
-        print(f"Training baseline model: {args.baseline}")
+        logger.info("Training baseline model: %s", args.baseline)
         model = BASELINES[args.baseline]()
         seg_model = None
     else:
-        print("Training novel segmentation-guided model")
+        logger.info("Training segmentation-guided model")
+        model_cfg = config.get("model", {})
+        seg_weights = model_cfg.get("seg_weights_path") or model_cfg.get(
+            "segmentation", {}
+        ).get("pretrained")
+
         seg_model = SegmentationModel(
-            pretrained_path=config.get('seg_weights_path')
+            pretrained_path=seg_weights,
         ).to(device)
-        
+
+        gen_cfg = model_cfg.get("generation", model_cfg)
         model = SegmentationGuidedReportGenerator(
-            model_name=config['model']['name'],
-            use_lora=config['model']['use_lora'],
-            device=device
+            model_name=gen_cfg.get("name", "google/medgemma-2b"),
+            use_lora=gen_cfg.get("use_lora", True),
+            device=str(device),
         )
-    
-    # Optimizer is now handled by ReportGeneratorTrainer
-    
-    # Trainer wrapper
-    from models.generation.medgemma import ReportGeneratorTrainer
-    trainer = ReportGeneratorTrainer(model, learning_rate=config['training']['learning_rate'])
-    
-    # Training loop
+
+    trainer = ReportGeneratorTrainer(
+        model,
+        learning_rate=config["training"]["learning_rate"],
+    )
+
+    # --- Training loop ---
     best_metric = 0.0
-    for epoch in range(config['training']['num_epochs']):
-        print(f"\n{'='*50}")
-        print(f"Epoch {epoch+1}/{config['training']['num_epochs']}")
-        print(f"{'='*50}")
-        
-        # Train
-        train_loss = train_epoch(model, seg_model, train_loader, trainer.optimizer, device, epoch, trainer)
-        print(f"Train loss: {train_loss:.4f}")
-        
-        # Evaluate
-        if (epoch + 1) % config['eval_every'] == 0:
+    eval_every = config["training"].get("eval_every", 2)
+    num_epochs = config["training"]["num_epochs"]
+
+    for epoch in range(num_epochs):
+        logger.info("Epoch %d/%d", epoch + 1, num_epochs)
+
+        train_loss = train_epoch(
+            model, seg_model, train_loader, trainer, device, epoch
+        )
+        logger.info("Train loss: %.4f", train_loss)
+
+        if (epoch + 1) % eval_every == 0:
             metrics = evaluate(model, seg_model, val_loader, device)
-            print(f"Validation metrics:")
             for k, v in metrics.items():
-                print(f"  {k}: {v:.4f}")
-            
-            # Log to wandb
-            if args.wandb:
-                wandb.log({
-                    'epoch': epoch,
-                    'train_loss': train_loss,
-                    **metrics
-                })
-            
-            # Save best model
-            if metrics.get('clinical_f1', 0) > best_metric:
-                best_metric = metrics['clinical_f1']
-                checkpoint_path = Path(config['output_dir']) / 'best_model.pth'
-                checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'metrics': metrics
-                }, checkpoint_path)
-                print(f"✓ Saved best model to {checkpoint_path}")
-    
-    print("\n🎉 Training complete!")
+                logger.info("  %s: %.4f", k, v)
+
+            if args.wandb and WANDB_AVAILABLE:
+                wandb.log(
+                    {"epoch": epoch, "train_loss": train_loss, **metrics}
+                )
+
+            clinical_f1 = metrics.get("clinical_f1", 0)
+            if clinical_f1 > best_metric:
+                best_metric = clinical_f1
+                ckpt_path = (
+                    Path(config["output_dir"]) / "best_model.pth"
+                )
+                ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": (
+                            trainer.optimizer.state_dict()
+                        ),
+                        "metrics": metrics,
+                    },
+                    ckpt_path,
+                )
+                logger.info("Saved best model to %s", ckpt_path)
+
+    logger.info("Training complete!")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
     main()
